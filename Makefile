@@ -513,20 +513,87 @@ kind: ## Create a kind cluster for Cilium development.
 kind-down: ## Destroy a kind cluster for Cilium development.
 	$(QUIET)./contrib/scripts/kind-down.sh
 
-kind-image: export DOCKER_REGISTRY=localhost:5000
-kind-image: export LOCAL_AGENT_IMAGE=$(DOCKER_REGISTRY)/$(DOCKER_DEV_ACCOUNT)/cilium-dev:$(LOCAL_IMAGE_TAG)
-kind-image: export LOCAL_OPERATOR_IMAGE=$(DOCKER_REGISTRY)/$(DOCKER_DEV_ACCOUNT)/operator:$(LOCAL_IMAGE_TAG)
-kind-image: ## Build cilium-dev docker image and import it into kind.
+.PHONY: kind-ready
+kind-ready:
 	@$(ECHO_CHECK) kind is ready...
-	@kind get clusters >/dev/null
-	$(QUIET)$(MAKE) dev-docker-image DOCKER_IMAGE_TAG=$(LOCAL_IMAGE_TAG)
+	@kind get clusters 2>&1 | grep "No kind clusters found." \
+		&& exit 1 || exit 0
+
+# Template for kind environment for a target. Parameters are:
+# $(1) Makefile target name
+define KIND_ENV
+.PHONY: $(1)
+$(1): export DOCKER_REGISTRY=localhost:5000
+$(1): export LOCAL_AGENT_IMAGE=$$(DOCKER_REGISTRY)/$$(DOCKER_DEV_ACCOUNT)/cilium-dev:$$(LOCAL_IMAGE_TAG)
+$(1): export LOCAL_OPERATOR_IMAGE=$$(DOCKER_REGISTRY)/$$(DOCKER_DEV_ACCOUNT)/operator-generic:$$(LOCAL_IMAGE_TAG)
+endef
+
+$(eval $(call KIND_ENV,kind-image-agent))
+kind-image-agent: kind-ready ## Build cilium-dev docker image and import it into kind.
+	$(QUIET)$(MAKE) dev-docker-image$(DEBUGGER_SUFFIX) DOCKER_IMAGE_TAG=$(LOCAL_IMAGE_TAG)
 	@echo "  DEPLOY image to kind ($(LOCAL_AGENT_IMAGE))"
 	$(QUIET)$(CONTAINER_ENGINE) push $(LOCAL_AGENT_IMAGE)
 	$(QUIET)kind load docker-image $(LOCAL_AGENT_IMAGE)
-	$(QUIET)$(MAKE) dev-docker-operator-image DOCKER_IMAGE_TAG=$(LOCAL_IMAGE_TAG)
+
+$(eval $(call KIND_ENV,kind-image-operator))
+kind-image-operator: kind-ready ## Build cilium-operator-dev docker image and import it into kind.
+	$(QUIET)$(MAKE) dev-docker-operator-generic-image DOCKER_IMAGE_TAG=$(LOCAL_IMAGE_TAG)
 	@echo "  DEPLOY image to kind ($(LOCAL_OPERATOR_IMAGE))"
 	$(QUIET)$(CONTAINER_ENGINE) push $(LOCAL_OPERATOR_IMAGE)
 	$(QUIET)kind load docker-image $(LOCAL_OPERATOR_IMAGE)
+
+.PHONY: kind-image
+kind-image: ## Build cilium and operator images and import them into kind.
+	$(MAKE) kind-image-agent
+	$(MAKE) kind-image-operator
+
+.PHONY: kind-install-cilium
+kind-install-cilium: kind-ready ## Install a local Cilium version into the cluster.
+	@echo "  INSTALL cilium"
+	# cilium-cli doesn't support idempotent installs, so we uninstall and
+	# reinstall here. https://github.com/cilium/cilium-cli/issues/205
+	-cilium uninstall >/dev/null
+	# cilium-cli's --wait flag doesn't work, so we just force it to run
+	# in the background instead and wait for the resources to be available.
+	# https://github.com/cilium/cilium-cli/issues/1070
+	cilium install \
+		--chart-directory=$(ROOT_DIR)/install/kubernetes/cilium \
+		--helm-values=$(ROOT_DIR)/contrib/testing/kind-values.yaml \
+		--version= \
+		>/dev/null 2>&1 &
+
+.PHONY: kind-check-cilium
+kind-check-cilium:
+	@echo "  CHECK  cilium is ready..."
+	cilium status --wait --wait-duration 1s >/dev/null 2>/dev/null
+
+# Template for kind debug targets. Parameters are:
+# $(1) agent target
+define DEBUG_KIND_TEMPLATE
+.PHONY: kind-image$(1)-debug
+kind-image$(1)-debug: export DEBUGGER_SUFFIX=-debug
+kind-image$(1)-debug: export NOSTRIP=1
+kind-image$(1)-debug: export NOOPT=1
+kind-image$(1)-debug: ## Build cilium$(1) docker image with a dlv debugger wrapper and import it into kind.
+	$(MAKE) kind-image$(1)
+endef
+
+# kind-image-agent-debug
+$(eval $(call DEBUG_KIND_TEMPLATE,-agent))
+
+$(eval $(call KIND_ENV,kind-debug-agent))
+kind-debug-agent: ## Create a local kind development environment with cilium-agent attached to a debugger.
+	$(QUIET)$(MAKE) kind-ready 2>/dev/null \
+		|| $(MAKE) kind
+	$(MAKE) kind-image-agent-debug
+	# Not debugging cilium-operator here; any image is good enough.
+	$(CONTAINER_ENGINE) push $(LOCAL_OPERATOR_IMAGE) \
+		|| $(MAKE) kind-image-operator
+	$(MAKE) kind-check-cilium 2>/dev/null \
+		|| $(MAKE) kind-install-cilium
+	@echo "Attach delve to localhost on these ports to continue:"
+	@echo " - 23401: cilium-agent (kind-control-plane)"
+	@echo " - 23411: cilium-agent (kind-worker)"
 
 precheck: check-go-version logging-subsys-field ## Peform build precheck for the source code.
 ifeq ($(SKIP_K8S_CODE_GEN_CHECK),"false")

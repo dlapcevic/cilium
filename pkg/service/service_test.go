@@ -822,6 +822,11 @@ func (m *ManagerTestSuite) TestUpsertServiceWithTerminatingBackends(c *C) {
 		Name:                      lb.ServiceName{Name: "svc1", Namespace: "ns1"},
 	}
 
+	// Reset state as backends are pointers to lb.Backend
+	p.Backends[0].State = lb.BackendStateActive
+	p.Backends[1].State = lb.BackendStateActive
+	p.Backends[2].State = lb.BackendStateActive
+
 	created, id1, err := m.svc.UpsertService(p)
 
 	c.Assert(err, IsNil)
@@ -928,8 +933,14 @@ func (m *ManagerTestSuite) TestRestoreServiceWithTerminatingBackends(c *C) {
 		Name:                      lb.ServiceName{Name: "svc1", Namespace: "ns1"},
 	}
 
+	// Reset state as backends are pointers to lb.Backend
+	p.Backends[0].State = lb.BackendStateActive
+	p.Backends[1].State = lb.BackendStateActive
+	p.Backends[2].State = lb.BackendStateActive
+
 	created, id1, err := m.svc.UpsertService(p)
 
+	c.Log(m.lbmap.ServiceByID[0])
 	c.Assert(err, IsNil)
 	c.Assert(created, Equals, true)
 	c.Assert(id1, Equals, lb.ID(1))
@@ -1181,6 +1192,65 @@ func (m *ManagerTestSuite) TestRestoreServiceWithBackendStates(c *C) {
 		}
 	}
 	c.Assert(statesMatched, Equals, len(backends))
+	c.Assert(m.lbmap.DummyMaglevTable[uint16(id1)], Equals, 1)
+}
+
+func (m *ManagerTestSuite) TestUpsertServiceWithZeroWeightBackends(c *C) {
+	option.Config.NodePortAlg = option.NodePortAlgMaglev
+	backends := append(backends1, backends4...)
+	backends[0].State = lb.BackendStateActive
+	backends[1].Weight = 0
+	backends[1].State = lb.BackendStateMaintenance
+	backends[2].Weight = 1
+	backends[2].State = lb.BackendStateActive
+
+	p := &lb.SVC{
+		Frontend:                  frontend1,
+		Backends:                  backends,
+		Type:                      lb.SVCTypeNodePort,
+		TrafficPolicy:             lb.SVCTrafficPolicyCluster,
+		SessionAffinity:           true,
+		SessionAffinityTimeoutSec: 100,
+		Name: lb.ServiceName{
+			Name:      "svc1",
+			Namespace: "ns1",
+		},
+	}
+
+	created, id1, err := m.svc.UpsertService(p)
+
+	c.Assert(err, IsNil)
+	c.Assert(created, Equals, true)
+	c.Assert(len(m.lbmap.ServiceByID[uint16(id1)].Backends), Equals, 3)
+	c.Assert(len(m.lbmap.BackendByID), Equals, 3)
+	hash := backends[1].L3n4Addr.Hash()
+	c.Assert(m.svc.backendByHash[hash].State, Equals, lb.BackendStateMaintenance)
+	hash = backends[2].L3n4Addr.Hash()
+	c.Assert(m.svc.backendByHash[hash].State, Equals, lb.BackendStateActive)
+	c.Assert(m.lbmap.DummyMaglevTable[uint16(id1)], Equals, 2)
+
+	// Update existing backend weight
+	p.Backends[2].Weight = 0
+	p.Backends[2].State = lb.BackendStateMaintenance
+
+	created, id1, err = m.svc.UpsertService(p)
+
+	c.Assert(err, IsNil)
+	c.Assert(created, Equals, false)
+	c.Assert(len(m.lbmap.ServiceByID[uint16(id1)].Backends), Equals, 3)
+	c.Assert(len(m.lbmap.BackendByID), Equals, 3)
+	c.Assert(m.svc.backendByHash[hash].State, Equals, lb.BackendStateMaintenance)
+	c.Assert(m.lbmap.DummyMaglevTable[uint16(id1)], Equals, 1)
+
+	// Delete backends with weight 0
+	p.Backends = backends[:1]
+
+	created, id1, err = m.svc.UpsertService(p)
+
+	c.Assert(err, IsNil)
+	c.Assert(created, Equals, false)
+	c.Assert(len(m.lbmap.ServiceByID[uint16(id1)].Backends), Equals, 1)
+	c.Assert(len(m.lbmap.BackendByID), Equals, 1)
 	c.Assert(m.lbmap.DummyMaglevTable[uint16(id1)], Equals, 1)
 }
 

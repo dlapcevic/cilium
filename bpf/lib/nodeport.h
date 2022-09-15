@@ -633,6 +633,7 @@ int tail_nodeport_nat_ipv6_egress(struct __ctx_buff *ctx)
 
 #ifdef TUNNEL_MODE
 	struct remote_endpoint_info *info;
+	bool use_tunnel = false;
 	union v6addr *dst;
 #endif
 
@@ -654,12 +655,13 @@ int tail_nodeport_nat_ipv6_egress(struct __ctx_buff *ctx)
 					  info->sec_label,
 					  NOT_VTEP_DST,
 					  (enum trace_reason)CT_NEW,
-					  TRACE_PAYLOAD_LEN);
-		if (ret)
+					  TRACE_PAYLOAD_LEN,
+					  &fib_params.l.ifindex);
+		if (ret != CTX_ACT_REDIRECT)
 			goto drop_err;
 
 		BPF_V6(target.addr, ROUTER_IP);
-		fib_params.l.ifindex = ENCAP_IFINDEX;
+		use_tunnel = true;
 	}
 #endif
 	ret = snat_v6_process(ctx, NAT_DIR_EGRESS, &target);
@@ -669,7 +671,7 @@ int tail_nodeport_nat_ipv6_egress(struct __ctx_buff *ctx)
 	bpf_mark_snat_done(ctx);
 
 #ifdef TUNNEL_MODE
-	if (fib_params.l.ifindex == ENCAP_IFINDEX)
+	if (use_tunnel)
 		goto out_send;
 #endif
 	if (!revalidate_data(ctx, &data, &data_end, &ip6)) {
@@ -889,7 +891,7 @@ redo:
 }
 
 /* See comment in tail_rev_nodeport_lb4(). */
-static __always_inline int rev_nodeport_lb6(struct __ctx_buff *ctx, int *ifindex,
+static __always_inline int rev_nodeport_lb6(struct __ctx_buff *ctx, __u32 *ifindex,
 					    int *ext_err)
 {
 	int ret, fib_ret, ret2, l3_off = ETH_HLEN, l4_off, hdrlen;
@@ -938,18 +940,12 @@ static __always_inline int rev_nodeport_lb6(struct __ctx_buff *ctx, int *ifindex
 
 			info = ipcache_lookup6(&IPCACHE_MAP, dst, V6_CACHE_KEY_LEN);
 			if (info != NULL && info->tunnel_endpoint != 0) {
-				ret = __encap_with_nodeid(ctx, info->tunnel_endpoint,
-							  SECLABEL,
-							  info->sec_label,
-							  NOT_VTEP_DST,
-							  TRACE_REASON_CT_REPLY,
-							  TRACE_PAYLOAD_LEN);
-				if (ret)
-					return ret;
-
-				*ifindex = ENCAP_IFINDEX;
-
-				return CTX_ACT_OK;
+				return __encap_with_nodeid(ctx, info->tunnel_endpoint,
+							   SECLABEL, info->sec_label,
+							   NOT_VTEP_DST,
+							   TRACE_REASON_CT_REPLY,
+							   TRACE_PAYLOAD_LEN,
+							   ifindex);
 			}
 		}
 #endif
@@ -969,7 +965,7 @@ static __always_inline int rev_nodeport_lb6(struct __ctx_buff *ctx, int *ifindex
 		if (ret != 0)
 			return ret;
 		if (!l2_hdr_required)
-			return CTX_ACT_OK;
+			return CTX_ACT_REDIRECT;
 
 		if (fib_ret != 0) {
 			union macaddr smac =
@@ -1005,16 +1001,16 @@ static __always_inline int rev_nodeport_lb6(struct __ctx_buff *ctx, int *ifindex
 		}
 	}
 
-	return CTX_ACT_OK;
+	return CTX_ACT_REDIRECT;
 }
 
 __section_tail(CILIUM_MAP_CALLS, CILIUM_CALL_IPV6_NODEPORT_REVNAT)
 int tail_rev_nodeport_lb6(struct __ctx_buff *ctx)
 {
-	int ifindex = 0, ret = 0;
+	int ext_err = 0, ret = 0;
 	void *data, *data_end;
 	struct ipv6hdr *ip6;
-	int ext_err = 0;
+	__u32 ifindex = 0;
 
 #if defined(ENABLE_HOST_FIREWALL) && defined(IS_BPF_HOST)
 	/* We only enforce the host policies if nodeport.h is included from
@@ -1041,15 +1037,24 @@ int tail_rev_nodeport_lb6(struct __ctx_buff *ctx)
 	if (!revalidate_data(ctx, &data, &data_end, &ip6))
 		goto drop;
 	if (is_v4_in_v6((union v6addr *)&ip6->saddr)) {
-		ret = lb6_to_lb4(ctx, ip6);
-		if (ret)
+		int ret2;
+
+		ret2 = lb6_to_lb4(ctx, ip6);
+		if (ret2) {
+			ret = ret2;
 			goto drop;
+		}
 	}
 
 	edt_set_aggregate(ctx, 0);
 	cilium_capture_out(ctx);
 
-	return ctx_redirect(ctx, ifindex, 0);
+	if (ret == CTX_ACT_REDIRECT)
+		return ctx_redirect(ctx, ifindex, 0);
+
+	ctx_move_xfer(ctx);
+	return ret;
+
 drop:
 	return send_drop_notify_error_ext(ctx, 0, ret, ext_err, CTX_ACT_DROP, METRIC_EGRESS);
 }
@@ -1692,6 +1697,7 @@ int tail_nodeport_nat_egress_ipv4(struct __ctx_buff *ctx)
 
 #ifdef TUNNEL_MODE
 	struct remote_endpoint_info *info;
+	bool use_tunnel = false;
 #endif
 
 	/* Unfortunately, the bpf_fib_lookup() is not able to set src IP addr.
@@ -1723,12 +1729,13 @@ int tail_nodeport_nat_egress_ipv4(struct __ctx_buff *ctx)
 					  info->sec_label,
 					  NOT_VTEP_DST,
 					  (enum trace_reason)CT_NEW,
-					  TRACE_PAYLOAD_LEN);
-		if (ret)
+					  TRACE_PAYLOAD_LEN,
+					  &fib_params.l.ifindex);
+		if (ret != CTX_ACT_REDIRECT)
 			goto drop_err;
 
 		target.addr = IPV4_GATEWAY;
-		fib_params.l.ifindex = ENCAP_IFINDEX;
+		use_tunnel = true;
 	}
 #endif
 	ret = snat_v4_process(ctx, NAT_DIR_EGRESS, &target, false);
@@ -1738,7 +1745,7 @@ int tail_nodeport_nat_egress_ipv4(struct __ctx_buff *ctx)
 	bpf_mark_snat_done(ctx);
 
 #ifdef TUNNEL_MODE
-	if (fib_params.l.ifindex == ENCAP_IFINDEX)
+	if (use_tunnel)
 		goto out_send;
 #endif
 	if (!revalidate_data(ctx, &data, &data_end, &ip4)) {
@@ -1962,7 +1969,7 @@ redo:
  * CILIUM_CALL_IPV{4,6}_NODEPORT_REVNAT is plugged into CILIUM_MAP_CALLS
  * of the bpf_host, bpf_overlay and of the bpf_lxc.
  */
-static __always_inline int rev_nodeport_lb4(struct __ctx_buff *ctx, int *ifindex,
+static __always_inline int rev_nodeport_lb4(struct __ctx_buff *ctx, __u32 *ifindex,
 					    int *ext_err)
 {
 	struct ipv4_ct_tuple tuple = {};
@@ -1981,8 +1988,7 @@ static __always_inline int rev_nodeport_lb4(struct __ctx_buff *ctx, int *ifindex
 	if (!revalidate_data(ctx, &data, &data_end, &ip4))
 		return DROP_INVALID;
 
-#if defined(ENABLE_EGRESS_GATEWAY) && !defined(TUNNEL_MODE) && \
-	__ctx_is != __ctx_xdp
+#if defined(ENABLE_EGRESS_GATEWAY) && !defined(TUNNEL_MODE)
 	/* Traffic from clients to egress gateway nodes reaches said gateways
 	 * by a vxlan tunnel. If we are not using TUNNEL_MODE, we need to
 	 * identify reverse traffic from the gateway to clients and also steer
@@ -1991,10 +1997,6 @@ static __always_inline int rev_nodeport_lb4(struct __ctx_buff *ctx, int *ifindex
 	 * egress gateway map using a reverse address tuple. A match means that
 	 * the corresponding forward traffic was forwarded to the egress gateway
 	 * via the tunnel.
-	 *
-	 * Currently, we don't support redirect to a tunnel netdev / encap on
-	 * XDP. Thus, the problem mentioned above is present when using the
-	 * egress gw feature with bpf_xdp.
 	 */
 	{
 		struct egress_gw_policy_entry *egress_policy;
@@ -2037,7 +2039,7 @@ static __always_inline int rev_nodeport_lb4(struct __ctx_buff *ctx, int *ifindex
 		bpf_mark_snat_done(ctx);
 
 		*ifindex = ct_state.ifindex;
-#if defined(TUNNEL_MODE) && __ctx_is != __ctx_xdp
+#if defined(TUNNEL_MODE)
 		{
 			struct remote_endpoint_info *info;
 
@@ -2072,7 +2074,7 @@ static __always_inline int rev_nodeport_lb4(struct __ctx_buff *ctx, int *ifindex
 		if (ret != 0)
 			return ret;
 		if (!l2_hdr_required)
-			return CTX_ACT_OK;
+			return CTX_ACT_REDIRECT;
 
 		if (fib_ret != 0) {
 			union macaddr smac =
@@ -2117,26 +2119,19 @@ static __always_inline int rev_nodeport_lb4(struct __ctx_buff *ctx, int *ifindex
 		}
 	}
 
-	return CTX_ACT_OK;
+	return CTX_ACT_REDIRECT;
 
-#if (defined(ENABLE_EGRESS_GATEWAY) || defined(TUNNEL_MODE)) && \
-	__ctx_is != __ctx_xdp
+#if (defined(ENABLE_EGRESS_GATEWAY) || defined(TUNNEL_MODE))
 encap_redirect:
-	ret = __encap_with_nodeid(ctx, tunnel_endpoint, SECLABEL, dst_id,
-				  NOT_VTEP_DST, reason, monitor);
-	if (ret)
-		return ret;
-
-	*ifindex = ENCAP_IFINDEX;
-
-	return CTX_ACT_OK;
+	return __encap_with_nodeid(ctx, tunnel_endpoint, SECLABEL, dst_id,
+				   NOT_VTEP_DST, reason, monitor, ifindex);
 #endif
 }
 
 __section_tail(CILIUM_MAP_CALLS, CILIUM_CALL_IPV4_NODEPORT_REVNAT)
 int tail_rev_nodeport_lb4(struct __ctx_buff *ctx)
 {
-	int ifindex = 0;
+	__u32 ifindex = 0;
 	int ext_err = 0;
 	int ret = 0;
 #if defined(ENABLE_HOST_FIREWALL) && defined(IS_BPF_HOST)
@@ -2166,7 +2161,11 @@ int tail_rev_nodeport_lb4(struct __ctx_buff *ctx)
 	edt_set_aggregate(ctx, 0);
 	cilium_capture_out(ctx);
 
-	return ctx_redirect(ctx, ifindex, 0);
+	if (ret == CTX_ACT_REDIRECT)
+		return ctx_redirect(ctx, ifindex, 0);
+
+	ctx_move_xfer(ctx);
+	return ret;
 }
 
 declare_tailcall_if(__or3(__and(is_defined(ENABLE_IPV4),

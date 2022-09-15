@@ -76,12 +76,12 @@ func (m *LBMockMap) UpsertService(p *datapathTypes.UpsertServiceParams) error {
 	return nil
 }
 
-func (m *LBMockMap) upsertMaglevLookupTable(svcID uint16, backends map[string]lb.BackendID, ipv6 bool) error {
+func (m *LBMockMap) upsertMaglevLookupTable(svcID uint16, backends map[string]*lb.Backend, ipv6 bool) error {
 	m.DummyMaglevTable[svcID] = len(backends)
 	return nil
 }
 
-func (m *LBMockMap) UpsertMaglevLookupTable(svcID uint16, backends map[string]lb.BackendID, ipv6 bool) error {
+func (m *LBMockMap) UpsertMaglevLookupTable(svcID uint16, backends map[string]*lb.Backend, ipv6 bool) error {
 	m.Lock()
 	defer m.Unlock()
 	return m.upsertMaglevLookupTable(svcID, backends, ipv6)
@@ -121,7 +121,7 @@ func (m *LBMockMap) AddBackend(b *lb.Backend, ipv6 bool) error {
 		return fmt.Errorf("Backend %d already exists", id)
 	}
 
-	be := lb.NewBackendWithState(id, b.Protocol, ip, port, b.State, false)
+	be := lb.NewBackendWithState(id, b.Protocol, ip, port, b.State)
 	m.BackendByID[id] = be
 
 	return nil
@@ -141,7 +141,6 @@ func (m *LBMockMap) UpdateBackendWithState(b *lb.Backend) error {
 			"state can be updated", be.String(), b.String())
 	}
 	be.State = b.State
-
 	return nil
 }
 
@@ -172,7 +171,6 @@ func (m *LBMockMap) DumpBackendMaps() ([]*lb.Backend, error) {
 	defer m.Unlock()
 	list := make([]*lb.Backend, 0, len(m.BackendByID))
 	for _, backend := range m.BackendByID {
-		backend.RestoredFromDatapath = true
 		list = append(list, backend)
 	}
 	return list, nil

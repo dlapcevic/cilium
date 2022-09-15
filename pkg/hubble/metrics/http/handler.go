@@ -31,17 +31,17 @@ func (h *httpHandler) Init(registry *prometheus.Registry, options api.Options) e
 		Namespace: api.DefaultPrometheusNamespace,
 		Name:      "http_requests_total",
 		Help:      "Count of HTTP requests",
-	}, append(h.context.GetLabelNames(), "method", "protocol"))
+	}, append(h.context.GetLabelNames(), "method", "protocol", "reporter"))
 	h.responses = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: api.DefaultPrometheusNamespace,
 		Name:      "http_responses_total",
 		Help:      "Count of HTTP responses",
-	}, append(h.context.GetLabelNames(), "status", "method"))
+	}, append(h.context.GetLabelNames(), "status", "method", "reporter"))
 	h.duration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: api.DefaultPrometheusNamespace,
 		Name:      "http_request_duration_seconds",
 		Help:      "Quantiles of HTTP request duration in seconds",
-	}, append(h.context.GetLabelNames(), "method"))
+	}, append(h.context.GetLabelNames(), "method", "reporter"))
 	registry.MustRegister(h.requests)
 	registry.MustRegister(h.responses)
 	registry.MustRegister(h.duration)
@@ -55,21 +55,32 @@ func (h *httpHandler) Status() string {
 	return h.context.Status()
 }
 
-func (h *httpHandler) ProcessFlow(ctx context.Context, flow *flowpb.Flow) {
+func (h *httpHandler) ProcessFlow(ctx context.Context, flow *flowpb.Flow) error {
 	l7 := flow.GetL7()
 	if l7 == nil {
-		return
+		return nil
 	}
 	http := l7.GetHttp()
 	if http == nil {
-		return
+		return nil
 	}
-	labelValues := h.context.GetLabelValues(flow)
+	labelValues, err := h.context.GetLabelValues(flow)
+	if err != nil {
+		return err
+	}
+	reporter := "unknown"
+	switch flow.GetTrafficDirection() {
+	case flowpb.TrafficDirection_EGRESS:
+		reporter = "client"
+	case flowpb.TrafficDirection_INGRESS:
+		reporter = "server"
+	}
 	if l7.Type == flowpb.L7FlowType_REQUEST {
-		h.requests.WithLabelValues(append(labelValues, http.Method, http.Protocol)...).Inc()
+		h.requests.WithLabelValues(append(labelValues, http.Method, http.Protocol, reporter)...).Inc()
 	} else if l7.Type == flowpb.L7FlowType_RESPONSE {
 		status := strconv.Itoa(int(http.Code))
-		h.responses.WithLabelValues(append(labelValues, status, http.Method)...).Inc()
-		h.duration.WithLabelValues(append(labelValues, http.Method)...).Observe(float64(l7.LatencyNs) / float64(time.Second))
+		h.responses.WithLabelValues(append(labelValues, status, http.Method, reporter)...).Inc()
+		h.duration.WithLabelValues(append(labelValues, http.Method, reporter)...).Observe(float64(l7.LatencyNs) / float64(time.Second))
 	}
+	return nil
 }

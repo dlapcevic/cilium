@@ -262,6 +262,12 @@ bpf:
   # -- Enable BPF clock source probing for more efficient tick retrieval.
   clockProbe: false
 
+  # -- Configure the path to the host boot directory
+  hostBoot: /boot
+
+  # -- Enable host boot directory mount for BPF clock source probing
+  mountHostBoot: true
+
   # -- Enables pre-allocation of eBPF map values. This increases
   # memory usage but can reduce latency.
   preallocateMaps: false
@@ -481,10 +487,10 @@ ingressController:
   # Incoming traffic to http listener will return 308 http error code with respective location in header.
   enforceHttps: true
 
-  # -- IngressLBAnnotations are the annotations which are needed to propagate
-  # from Ingress to the Load Balancer
-  ingressLBAnnotations: ['service.beta.kubernetes.io', 'service.kubernetes.io', 'cloud.google.com']
-  
+  # -- IngressLBAnnotations are the annotation prefixes, which are used to filter annotations to propagate
+  # from Ingress to the Load Balancer service
+  ingressLBAnnotationPrefixes: ['service.beta.kubernetes.io', 'service.kubernetes.io', 'cloud.google.com']
+
   # -- SecretsNamespace is the namespace in which envoy SDS will retrieve TLS secrets from.
   secretsNamespace:
     # -- Create secrets namespace for Ingress.
@@ -700,6 +706,8 @@ hubble:
       annotations: {}
       # -- Interval for scrape metrics.
       interval: "10s"
+      # -- Metrics relabeling configs for the ServiceMonitor hubble
+      metricRelabelings: ~
 
   # -- Unix domain socket path to listen to when Hubble is enabled.
   socketPath: /var/run/cilium/hubble.sock
@@ -936,6 +944,8 @@ hubble:
         # -- Specify the Kubernetes namespace where Prometheus expects to find
         # service monitors configured.
         # namespace: ""
+        # -- Metrics relabeling configs for the ServiceMonitor hubble-relay
+        metricRelabelings: ~
 
   ui:
     # -- Whether to enable the Hubble UI.
@@ -1016,6 +1026,10 @@ hubble:
       #   requests:
       #     cpu: 100m
       #     memory: 64Mi
+      server:
+        # -- Controls server listener for ipv6
+        ipv6:
+          enabled: true
 
     # -- The number of replicas of Hubble UI to deploy.
     replicas: 1
@@ -1367,6 +1381,8 @@ prometheus:
     # -- Specify the Kubernetes namespace where Prometheus expects to find
     # service monitors configured.
     # namespace: ""
+    # -- Metrics relabeling configs for the ServiceMonitor cilium-agent
+    metricRelabelings: ~
   # -- Metrics that should be enabled or disabled from the default metric
   # list. (+metric_foo to enable metric_foo , -metric_bar to disable
   # metric_bar).
@@ -1703,6 +1719,8 @@ operator:
       annotations: {}
       # -- Interval for scrape metrics.
       interval: "10s"
+      # -- Metrics relabeling configs for the ServiceMonitor cilium-operator
+      metricRelabelings: ~
 
   # -- Skip CRDs creation for cilium-operator
   skipCRDCreation: false
@@ -2164,3 +2182,8 @@ dnsProxy:
   proxyPort: 0
   # -- The maximum time the DNS proxy holds an allowed DNS response before sending it along. Responses are sent as soon as the datapath is updated with the new IP information.
   proxyResponseMaxDelay: 100ms
+
+# -- SCTP Configuration Values
+sctp:
+  # -- Enable SCTP support. NOTE: Currently, SCTP support does not support rewriting ports or multihoming.
+  enabled: false

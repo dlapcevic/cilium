@@ -717,9 +717,9 @@ func (l4 *L4Filter) IsProxylibRedirect() bool {
 	return l4.IsEnvoyRedirect() && l4.L7Parser != ParserTypeHTTP
 }
 
-// MarshalIndent returns the `L4Filter` in indented JSON string.
-func (l4 *L4Filter) MarshalIndent() string {
-	b, err := json.MarshalIndent(l4, "", "  ")
+// Marshal returns the `L4Filter` in a JSON string.
+func (l4 *L4Filter) Marshal() string {
+	b, err := json.Marshal(l4)
 	if err != nil {
 		b = []byte("\"L4Filter error: " + err.Error() + "\"")
 	}
@@ -885,7 +885,7 @@ func (l4 L4PolicyMap) containsAllL3L4(labels labels.LabelArray, ports []*models.
 			portStr = fmt.Sprintf("%d", l4Ctx.Port)
 		}
 		lwrProtocol := l4Ctx.Protocol
-		var isUDPDeny, isTCPDeny bool
+		var isUDPDeny, isTCPDeny, isSCTPDeny bool
 		switch lwrProtocol {
 		case "", models.PortProtocolANY:
 			tcpPort := fmt.Sprintf("%s/TCP", portStr)
@@ -898,7 +898,12 @@ func (l4 L4PolicyMap) containsAllL3L4(labels labels.LabelArray, ports []*models.
 			if udpmatch {
 				udpmatch, isUDPDeny = udpFilter.matchesLabels(labels)
 			}
-			if (!tcpmatch && !udpmatch) || (isTCPDeny && isUDPDeny) {
+			sctpPort := fmt.Sprintf("%s/SCTP", portStr)
+			sctpFilter, sctpmatch := l4[sctpPort]
+			if sctpmatch {
+				sctpmatch, isSCTPDeny = sctpFilter.matchesLabels(labels)
+			}
+			if (!tcpmatch && !udpmatch && !sctpmatch) || (isTCPDeny && isUDPDeny && isSCTPDeny) {
 				return api.Denied
 			}
 		default:
@@ -1067,7 +1072,7 @@ func (l4 *L4Policy) GetModel() *models.L4Policy {
 	ingress := []*models.PolicyRule{}
 	for _, v := range l4.Ingress {
 		ingress = append(ingress, &models.PolicyRule{
-			Rule:             v.MarshalIndent(),
+			Rule:             v.Marshal(),
 			DerivedFromRules: v.DerivedFromRules.GetModel(),
 		})
 	}
@@ -1075,7 +1080,7 @@ func (l4 *L4Policy) GetModel() *models.L4Policy {
 	egress := []*models.PolicyRule{}
 	for _, v := range l4.Egress {
 		egress = append(egress, &models.PolicyRule{
-			Rule:             v.MarshalIndent(),
+			Rule:             v.Marshal(),
 			DerivedFromRules: v.DerivedFromRules.GetModel(),
 		})
 	}

@@ -195,6 +195,8 @@ const (
 	TCP = L4Type("TCP")
 	// UDP type.
 	UDP = L4Type("UDP")
+	// SCTP type.
+	SCTP = L4Type("SCTP")
 )
 
 const (
@@ -280,9 +282,12 @@ func GetBackendStateFromFlags(flags uint8) BackendState {
 	}
 }
 
+// DefaultBackendWeight is used when backend weight is not set in ServiceSpec
+const DefaultBackendWeight = 100
+
 var (
 	// AllProtocols is the list of all supported L4 protocols
-	AllProtocols = []L4Type{TCP, UDP}
+	AllProtocols = []L4Type{TCP, UDP, SCTP}
 )
 
 // L4Type name.
@@ -323,18 +328,16 @@ type Backend struct {
 	FEPortName string
 	// ID of the backend
 	ID BackendID
+	// Weight of backend
+	Weight uint16
 	// Node hosting this backend. This is used to determine backends local to
 	// a node.
 	NodeName string
 	L3n4Addr
 	// State of the backend for load-balancing service traffic
 	State BackendState
-
 	// Preferred indicates if the healthy backend is preferred
 	Preferred Preferred
-
-	// RestoredFromDatapath indicates whether the backend was restored from BPF maps
-	RestoredFromDatapath bool
 }
 
 func (b *Backend) String() string {
@@ -473,6 +476,8 @@ func NewL4Type(name string) (L4Type, error) {
 		return TCP, nil
 	case "udp":
 		return UDP, nil
+	case "sctp":
+		return SCTP, nil
 	default:
 		return "", fmt.Errorf("unknown L4 protocol")
 	}
@@ -573,25 +578,25 @@ func NewL3n4AddrFromModel(base *models.FrontendAddress) (*L3n4Addr, error) {
 func NewBackend(id BackendID, protocol L4Type, ip net.IP, portNumber uint16) *Backend {
 	lbport := NewL4Addr(protocol, portNumber)
 	b := Backend{
-		ID:        BackendID(id),
+		ID:        id,
 		L3n4Addr:  L3n4Addr{IP: ip, L4Addr: *lbport},
 		State:     BackendStateActive,
 		Preferred: Preferred(false),
+		Weight:    DefaultBackendWeight,
 	}
 
 	return &b
 }
 
-// NewBackendWithState creates the Backend struct instance from given params,
-// and sets the restore state for the Backend.
+// NewBackendWithState creates the Backend struct instance from given params.
 func NewBackendWithState(id BackendID, protocol L4Type, ip net.IP, portNumber uint16,
-	state BackendState, restored bool) *Backend {
+	state BackendState) *Backend {
 	lbport := NewL4Addr(protocol, portNumber)
 	b := Backend{
-		ID:                   id,
-		L3n4Addr:             L3n4Addr{IP: ip, L4Addr: *lbport},
-		State:                state,
-		RestoredFromDatapath: restored,
+		ID:       id,
+		L3n4Addr: L3n4Addr{IP: ip, L4Addr: *lbport},
+		State:    state,
+		Weight:   DefaultBackendWeight,
 	}
 
 	return &b
@@ -613,12 +618,22 @@ func NewBackendFromBackendModel(base *models.BackendAddress) (*Backend, error) {
 		return nil, fmt.Errorf("invalid backend state [%s]", base.State)
 	}
 
-	return &Backend{
+	b := &Backend{
 		NodeName:  base.NodeName,
 		L3n4Addr:  L3n4Addr{IP: ip, L4Addr: *l4addr},
 		State:     state,
 		Preferred: Preferred(base.Preferred),
-	}, nil
+	}
+
+	if base.Weight != nil {
+		b.Weight = *base.Weight
+	}
+
+	if b.Weight == 0 {
+		b.State = BackendStateMaintenance
+	}
+
+	return b, nil
 }
 
 func NewL3n4AddrFromBackendModel(base *models.BackendAddress) (*L3n4Addr, error) {
@@ -664,6 +679,7 @@ func (b *Backend) GetBackendModel() *models.BackendAddress {
 		NodeName:  b.NodeName,
 		State:     stateStr,
 		Preferred: bool(b.Preferred),
+		Weight:    &b.Weight,
 	}
 }
 

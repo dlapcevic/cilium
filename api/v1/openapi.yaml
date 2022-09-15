@@ -3,7 +3,7 @@ swagger: '2.0'
 info:
   title: Cilium API
   description: Cilium
-  version: v1beta
+  version: v1beta1
 x-schemes:
 - unix
 basePath: "/v1"
@@ -2393,6 +2393,7 @@ definitions:
         enum:
           - TCP
           - UDP
+          - SCTP
           - ICMP
           - ICMPV6
           - ANY
@@ -2509,6 +2510,11 @@ definitions:
           Indicator if this backend is preferred in the context of clustermesh service affinity. The value is set based
           on related annotation of global service. Applicable for active state only.
         type: boolean
+      weight:
+        description: Backend weight
+        type: integer
+        format: uint16
+        x-nullable: true
   LRPBackend:
     description: Pod backend of an LRP
     type: object
@@ -2666,6 +2672,7 @@ definitions:
         enum:
         - TCP
         - UDP
+        - SCTP
         - ANY
   RecorderSpec:
     description: Configuration of a recorder

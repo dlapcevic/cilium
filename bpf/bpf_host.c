@@ -210,7 +210,7 @@ handle_ipv6(struct __ctx_buff *ctx, __u32 secctx, const bool from_host)
 
 #ifdef ENABLE_NODEPORT
 	if (!from_host) {
-		if (ctx_get_xfer(ctx) != XFER_PKT_NO_SVC &&
+		if (ctx_get_xfer(ctx, XFER_FLAGS) != XFER_PKT_NO_SVC &&
 		    !bpf_skip_nodeport(ctx)) {
 			ret = nodeport_lb6(ctx, secctx);
 			/* nodeport_lb6() returns with TC_ACT_REDIRECT for
@@ -298,17 +298,13 @@ skip_host_firewall:
 	dst = (union v6addr *) &ip6->daddr;
 	info = ipcache_lookup6(&IPCACHE_MAP, dst, V6_CACHE_KEY_LEN);
 	if (info != NULL && info->tunnel_endpoint != 0) {
-		ret = encap_and_redirect_with_nodeid(ctx, info->tunnel_endpoint,
-						     info->key, secctx, info->sec_label, &trace);
-
 		/* If IPSEC is needed recirc through ingress to use xfrm stack
 		 * and then result will routed back through bpf_netdev on egress
 		 * but with encrypt marks.
 		 */
-		if (ret == IPSEC_ENDPOINT)
-			return CTX_ACT_OK;
-		else
-			return ret;
+		return encap_and_redirect_with_nodeid(ctx, info->tunnel_endpoint,
+						      info->key, secctx, info->sec_label,
+						      &trace);
 	} else {
 		struct endpoint_key key = {};
 
@@ -321,9 +317,7 @@ skip_host_firewall:
 		key.family = ENDPOINT_KEY_IPV6;
 
 		ret = encap_and_redirect_netdev(ctx, &key, secctx, &trace);
-		if (ret == IPSEC_ENDPOINT)
-			return CTX_ACT_OK;
-		else if (ret != DROP_NO_TUNNEL_ENDPOINT)
+		if (ret != DROP_NO_TUNNEL_ENDPOINT)
 			return ret;
 	}
 #endif
@@ -493,7 +487,7 @@ handle_ipv4(struct __ctx_buff *ctx, __u32 secctx,
 
 #ifdef ENABLE_NODEPORT
 	if (!from_host) {
-		if (ctx_get_xfer(ctx) != XFER_PKT_NO_SVC &&
+		if (ctx_get_xfer(ctx, XFER_FLAGS) != XFER_PKT_NO_SVC &&
 		    !bpf_skip_nodeport(ctx)) {
 			ret = nodeport_lb4(ctx, secctx);
 			if (ret == NAT_46X64_RECIRC) {
@@ -612,13 +606,9 @@ skip_vtep:
 #ifdef TUNNEL_MODE
 	info = ipcache_lookup4(&IPCACHE_MAP, ip4->daddr, V4_CACHE_KEY_LEN);
 	if (info != NULL && info->tunnel_endpoint != 0) {
-		ret = encap_and_redirect_with_nodeid(ctx, info->tunnel_endpoint,
-						     info->key, secctx, info->sec_label, &trace);
-
-		if (ret == IPSEC_ENDPOINT)
-			return CTX_ACT_OK;
-		else
-			return ret;
+		return encap_and_redirect_with_nodeid(ctx, info->tunnel_endpoint,
+						      info->key, secctx, info->sec_label,
+						      &trace);
 	} else {
 		/* IPv4 lookup key: daddr & IPV4_MASK */
 		struct endpoint_key key = {};
@@ -628,9 +618,7 @@ skip_vtep:
 
 		cilium_dbg(ctx, DBG_NETDEV_ENCAP4, key.ip4, secctx);
 		ret = encap_and_redirect_netdev(ctx, &key, secctx, &trace);
-		if (ret == IPSEC_ENDPOINT)
-			return CTX_ACT_OK;
-		else if (ret != DROP_NO_TUNNEL_ENDPOINT)
+		if (ret != DROP_NO_TUNNEL_ENDPOINT)
 			return ret;
 	}
 #endif
@@ -1146,6 +1134,20 @@ __section("from-netdev")
 int cil_from_netdev(struct __ctx_buff *ctx)
 {
 	__u32 __maybe_unused vlan_id;
+
+#if defined(ENABLE_NODEPORT_ACCELERATION) && defined(ENABLE_EGRESS_GATEWAY)
+	struct trace_ctx trace = {
+		.reason = TRACE_REASON_UNKNOWN,
+		.monitor = TRACE_PAYLOAD_LEN,
+	};
+
+	if (ctx_get_xfer(ctx, XFER_FLAGS) == XFER_PKT_ENCAP) {
+		return __encap_and_redirect_with_nodeid(ctx, ctx_get_xfer(ctx, XFER_ENCAP_NODEID),
+							ctx_get_xfer(ctx, XFER_ENCAP_SECLABEL),
+							ctx_get_xfer(ctx, XFER_ENCAP_DSTID),
+							NOT_VTEP_DST, &trace);
+	}
+#endif
 
 	/* Filter allowed vlan id's and pass them back to kernel.
 	 */

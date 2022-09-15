@@ -57,10 +57,13 @@
 /* Per-packet LB is needed if all LB cases can not be handled in bpf_sock.
  * Most services with L7 LB flag can not be redirected to their proxy port
  * in bpf_sock, so we must check for those via per packet LB as well.
+ * Furthermore, since SCTP cannot be handled as part of bpf_sock, also
+ * enable per-packet LB is SCTP is enabled.
  */
 #if !defined(ENABLE_SOCKET_LB_FULL) || \
     defined(ENABLE_SOCKET_LB_HOST_ONLY) || \
-    defined(ENABLE_L7_LB)
+    defined(ENABLE_L7_LB)               || \
+    defined(ENABLE_SCTP)
 # define ENABLE_PER_PACKET_LB 1
 #endif
 
@@ -510,7 +513,7 @@ ct_recreate6:
 		 */
 		ret = encap_and_redirect_lxc(ctx, tunnel_endpoint, encrypt_key,
 					     &key, SECLABEL, *dst_id, &trace);
-		if (ret == IPSEC_ENDPOINT)
+		if (ret == CTX_ACT_OK)
 			goto encrypt_to_stack;
 		else if (ret != DROP_NO_TUNNEL_ENDPOINT)
 			return ret;
@@ -1043,7 +1046,7 @@ ct_recreate4:
 		 */
 		ret = encap_and_redirect_lxc(ctx, egress_gw_policy->gateway_ip, encrypt_key,
 					     &key, SECLABEL, *dst_id, &trace);
-		if (ret == IPSEC_ENDPOINT)
+		if (ret == CTX_ACT_OK)
 			goto encrypt_to_stack;
 		else
 			return ret;
@@ -1097,7 +1100,7 @@ skip_vtep:
 		/* If not redirected noteably due to IPSEC then pass up to stack
 		 * for further processing.
 		 */
-		else if (ret == IPSEC_ENDPOINT)
+		else if (ret == CTX_ACT_OK)
 			goto encrypt_to_stack;
 		/* This is either redirect by encap code or an error has
 		 * occurred either way return and stack will consume ctx.

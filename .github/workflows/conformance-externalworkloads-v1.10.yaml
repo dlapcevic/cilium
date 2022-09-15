@@ -67,6 +67,7 @@ env:
   vmStartupScript: .github/gcp-vm-startup.sh
   cilium_cli_version: v0.10.7
   check_url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+  USE_GKE_GCLOUD_AUTH_PLUGIN: True
 
 jobs:
   check_changes:
@@ -121,6 +122,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - name: Checkout master branch to access local actions
+        uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Set Environment Variables
+        uses: ./.github/actions/set-env-variables
+
       - name: Set up job variables
         id: vars
         run: |
@@ -137,8 +146,8 @@ jobs:
           fi
 
           CILIUM_INSTALL_DEFAULTS="--cluster-name=${{ env.clusterName }} \
-            --agent-image=quay.io/${{ github.repository_owner }}/cilium-ci \
-            --operator-image=quay.io/${{ github.repository_owner }}/operator-generic-ci \
+            --agent-image=quay.io/${{ env.QUAY_ORGANIZATION_DEV }}/cilium-ci \
+            --operator-image=quay.io/${{ env.QUAY_ORGANIZATION_DEV }}/operator-generic-ci \
             --version=${SHA} \
             --wait=false \
             --rollback=false \
@@ -146,9 +155,9 @@ jobs:
             --config tunnel=vxlan \
             --kube-proxy-replacement=strict \
             --base-version=v1.10.12"
-          HUBBLE_ENABLE_DEFAULTS="--relay-image=quay.io/${{ github.repository_owner }}/hubble-relay-ci \
+          HUBBLE_ENABLE_DEFAULTS="--relay-image=quay.io/${{ env.QUAY_ORGANIZATION_DEV }}/hubble-relay-ci \
             --relay-version=${SHA}"
-          CLUSTERMESH_ENABLE_DEFAULTS="--apiserver-image=quay.io/${{ github.repository_owner }}/clustermesh-apiserver-ci \
+          CLUSTERMESH_ENABLE_DEFAULTS="--apiserver-image=quay.io/${{ env.QUAY_ORGANIZATION_DEV }}/clustermesh-apiserver-ci \
             --apiserver-version=${SHA}"
           CONNECTIVITY_TEST_DEFAULTS="--base-version=v1.10.12 \
             --flow-validation=disabled"
@@ -182,12 +191,20 @@ jobs:
           rm cilium-linux-amd64.tar.gz{,.sha256sum}
           cilium version
 
+      - name: Set up gcloud credentials
+        id: 'auth'
+        uses: 'google-github-actions/auth@dac4e13deb3640f22e3ffe758fd3f95e6e89f712'
+        with:
+          credentials_json: '${{ secrets.GCP_PR_SA_KEY }}'
+
       - name: Set up gcloud CLI
         uses: google-github-actions/setup-gcloud@877d4953d2c70a0ba7ef3290ae968eb24af233bb
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
-          service_account_key: ${{ secrets.GCP_PR_SA_KEY }}
-          export_default_credentials: true
+
+      - name: Install gke-gcloud-auth-plugin
+        run: |
+          gcloud components install gke-gcloud-auth-plugin
 
       - name: Display gcloud CLI info
         run: |
@@ -234,7 +251,7 @@ jobs:
         shell: bash
         run: |
           for image in cilium-ci operator-generic-ci hubble-relay-ci clustermesh-apiserver-ci ; do
-            until docker manifest inspect quay.io/${{ github.repository_owner }}/$image:${{ steps.vars.outputs.sha }} &> /dev/null; do sleep 45s; done
+            until docker manifest inspect quay.io/${{ env.QUAY_ORGANIZATION_DEV }}/$image:${{ steps.vars.outputs.sha }} &> /dev/null; do sleep 45s; done
           done
 
       - name: Install Cilium in cluster
@@ -340,12 +357,3 @@ jobs:
           description: Connectivity test cancelled
           state: error
           target_url: ${{ env.check_url }}
-
-      - name: Send slack notification
-        if: ${{ !success() && (github.event_name == 'schedule' || github.event_name == 'push') }}
-        uses: 8398a7/action-slack@22048831299719d772f51719ca7384e34b4cc61d
-        with:
-          status: ${{ job.status }}
-          fields: repo,message,commit,author,action,eventName,ref,workflow,job,took # selectable (default: repo,message)
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

@@ -1181,8 +1181,9 @@ func (s *Service) upsertServiceIntoLBMaps(svc *svcInfo, onlyLocalBackends bool,
 	// Add new backends into BPF maps
 	for _, b := range newBackends {
 		scopedLog.WithFields(logrus.Fields{
-			logfields.BackendID: b.ID,
-			logfields.L3n4Addr:  b.L3n4Addr,
+			logfields.BackendID:     b.ID,
+			logfields.BackendWeight: b.Weight,
+			logfields.L3n4Addr:      b.L3n4Addr,
 		}).Debug("Adding new backend")
 
 		if err := s.lbmap.AddBackend(b, b.L3n4Addr.IsIPv6()); err != nil {
@@ -1366,9 +1367,9 @@ func (s *Service) restoreServicesLocked() error {
 		if option.Config.DatapathMode == datapathOpt.DatapathModeLBOnly &&
 			newSVC.useMaglev() && recreated {
 
-			backends := make(map[string]lb.BackendID, len(newSVC.backends))
+			backends := make(map[string]*lb.Backend, len(newSVC.backends))
 			for _, b := range newSVC.backends {
-				backends[b.String()] = b.ID
+				backends[b.String()] = b
 			}
 			if err := s.lbmap.UpsertMaglevLookupTable(uint16(newSVC.frontend.ID), backends,
 				ipv6); err != nil {
@@ -1464,42 +1465,41 @@ func (s *Service) updateBackendsCacheLocked(svc *svcInfo, backends []*lb.Backend
 						backend.L3n4Addr, err)
 				}
 				backends[i].ID = id
-				// Default backend state is active.
-				backends[i].State = lb.BackendStateActive
+				backends[i].Weight = backend.Weight
 				newBackends = append(newBackends, backends[i])
 				// TODO make backendByHash by value not by ref
 				s.backendByHash[hash] = backends[i]
 			} else {
 				backends[i].ID = s.backendByHash[hash].ID
-				backends[i].State = s.backendByHash[hash].State
 			}
 			svc.backendByHash[hash] = backends[i]
 		} else {
 			backends[i].ID = b.ID
-			// Update backend state.
-			if b.RestoredFromDatapath {
-				backends[i].State = b.State
-				// Toggle the flag as the backend is now restored.
-				b.RestoredFromDatapath = false
-			} else {
-				// Backend state can either be updated via kubernetes events,
-				// or service API. If the state update is coming via kubernetes events,
-				// then we need to update the internal state. Currently, the only state
-				// update in this case is for the terminating state. All other state
-				// updates happen via the API (UpdateBackendState) in which case we need
-				// to set the backend state to the saved state.
-				if backends[i].State == lb.BackendStateTerminating &&
-					b.State != lb.BackendStateTerminating {
-					b.State = backends[i].State
-					// Update the persisted backend state in BPF maps.
-					if err := s.lbmap.UpdateBackendWithState(backends[i]); err != nil {
-						return nil, nil, nil, fmt.Errorf("failed to update backend %+v %w",
-							backends[i], err)
-					}
-				} else {
-					// Set the backend state to the saved state.
-					backends[i].State = b.State
+			// Backend state can either be updated via kubernetes events,
+			// or service API. If the state update is coming via kubernetes events,
+			// then we need to update the internal state. Currently, the only state
+			// update in this case is for the terminating state or when backend
+			// weight has changed. All other state updates happen via the API
+			// (UpdateBackendsState) in which case we need to set the backend state
+			// to the saved state.
+			switch {
+			case backends[i].State == lb.BackendStateTerminating &&
+				b.State != lb.BackendStateTerminating:
+				b.State = backends[i].State
+				// Update the persisted backend state in BPF maps.
+				if err := s.lbmap.UpdateBackendWithState(backends[i]); err != nil {
+					return nil, nil, nil, fmt.Errorf("failed to update backend %+v %w",
+						backends[i], err)
 				}
+			case backends[i].Weight != b.Weight:
+				// Update the cached weight as weight has changed
+				b.Weight = backends[i].Weight
+				// Update but do not persist the state as backend might be set as active
+				// only temporarily for specific service
+				b.State = backends[i].State
+			default:
+				// Set the backend state to the saved state.
+				backends[i].State = b.State
 			}
 		}
 	}
@@ -1587,10 +1587,10 @@ func isWildcardAddr(frontend lb.L3n4AddrID) bool {
 	return net.IPv4zero.Equal(frontend.IP)
 }
 
-func segregateBackends(backends []*lb.Backend) (preferredBackends map[string]lb.BackendID,
-	activeBackends map[string]lb.BackendID, nonActiveBackends []lb.BackendID) {
-	preferredBackends = make(map[string]lb.BackendID)
-	activeBackends = make(map[string]lb.BackendID, len(backends))
+func segregateBackends(backends []*lb.Backend) (preferredBackends map[string]*lb.Backend,
+	activeBackends map[string]*lb.Backend, nonActiveBackends []lb.BackendID) {
+	preferredBackends = make(map[string]*lb.Backend)
+	activeBackends = make(map[string]*lb.Backend, len(backends))
 
 	for _, b := range backends {
 		// Separate active from non-active backends so that they won't be selected
@@ -1599,16 +1599,15 @@ func segregateBackends(backends []*lb.Backend) (preferredBackends map[string]lb.
 		// are able to terminate gracefully. Such backends would either be cleaned-up
 		// when the backends are deleted, or they could transition to active state.
 		if b.State == lb.BackendStateActive {
-			activeBackends[b.String()] = b.ID
+			activeBackends[b.String()] = b
 			// keep another list of preferred backends if available
 			if b.Preferred {
-				preferredBackends[b.String()] = b.ID
+				preferredBackends[b.String()] = b
 			}
 		} else {
 			nonActiveBackends = append(nonActiveBackends, b.ID)
 		}
 	}
-
 	return preferredBackends, activeBackends, nonActiveBackends
 }
 

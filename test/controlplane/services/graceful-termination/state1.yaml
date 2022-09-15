@@ -6,15 +6,15 @@ items:
     annotations:
       kubectl.kubernetes.io/last-applied-configuration: |
         {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"name":"graceful-term-svc","namespace":"test"},"spec":{"ports":[{"port":8081}],"selector":{"app":"graceful-term-server"}}}
-    creationTimestamp: "2022-07-05T14:29:37Z"
+    creationTimestamp: "2022-09-12T22:13:38Z"
     name: graceful-term-svc
     namespace: test
-    resourceVersion: "720"
-    uid: 1719c285-69ac-44bc-b07b-4203f32300f7
+    resourceVersion: "631"
+    uid: 3d82a791-d462-4927-8477-85f4baf3fa70
   spec:
-    clusterIP: 10.96.23.96
+    clusterIP: 10.96.40.18
     clusterIPs:
-    - 10.96.23.96
+    - 10.96.40.18
     internalTrafficPolicy: Cluster
     ipFamilies:
     - IPv4
@@ -33,7 +33,7 @@ items:
   apiVersion: discovery.k8s.io/v1
   endpoints:
   - addresses:
-    - 10.244.0.180
+    - 10.244.0.10
     conditions:
       ready: true
       serving: true
@@ -43,19 +43,18 @@ items:
       kind: Pod
       name: graceful-term-server
       namespace: test
-      resourceVersion: "793"
-      uid: a53b0108-4f2f-42c9-ac5c-67c4a5bdfb18
+      uid: 59aaa263-fa1c-4580-aca8-0b73e7debf65
   kind: EndpointSlice
   metadata:
     annotations:
-      endpoints.kubernetes.io/last-change-trigger-time: "2022-07-05T14:29:45Z"
-    creationTimestamp: "2022-07-05T14:29:37Z"
+      endpoints.kubernetes.io/last-change-trigger-time: "2022-09-12T22:13:45Z"
+    creationTimestamp: "2022-09-12T22:13:38Z"
     generateName: graceful-term-svc-
     generation: 2
     labels:
       endpointslice.kubernetes.io/managed-by: endpointslice-controller.k8s.io
       kubernetes.io/service-name: graceful-term-svc
-    name: graceful-term-svc-h4mp4
+    name: graceful-term-svc-phqrp
     namespace: test
     ownerReferences:
     - apiVersion: v1
@@ -63,9 +62,9 @@ items:
       controller: true
       kind: Service
       name: graceful-term-svc
-      uid: 1719c285-69ac-44bc-b07b-4203f32300f7
-    resourceVersion: "795"
-    uid: 653565a3-3084-4423-9e37-0f27884b2f2a
+      uid: 3d82a791-d462-4927-8477-85f4baf3fa70
+    resourceVersion: "702"
+    uid: 6b069d66-a53c-4318-8169-287dbcbf7bc5
   ports:
   - name: ""
     port: 8081
@@ -73,4 +72,3 @@ items:
 kind: List
 metadata:
   resourceVersion: ""
-  selfLink: ""

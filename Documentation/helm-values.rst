@@ -85,6 +85,10 @@
      - Enable BPF clock source probing for more efficient tick retrieval.
      - bool
      - ``false``
+   * - bpf.hostBoot
+     - Configure the path to the host boot directory
+     - string
+     - ``"/boot"``
    * - bpf.lbExternalClusterIP
      - Allow cluster external access to ClusterIP services.
      - bool
@@ -105,6 +109,10 @@
      - Configure the typical time between monitor notifications for active connections.
      - string
      - ``"5s"``
+   * - bpf.mountHostBoot
+     - Enable host boot directory mount for BPF clock source probing
+     - bool
+     - ``true``
    * - bpf.policyMapMax
      - Configure the maximum number of entries in endpoint policy map (per endpoint).
      - int
@@ -720,7 +728,7 @@
    * - hubble.metrics
      - Hubble metrics configuration. See https://docs.cilium.io/en/stable/operations/metrics/#hubble-metrics for more comprehensive documentation about Hubble metrics.
      - object
-     - ``{"enabled":null,"port":9965,"serviceAnnotations":{},"serviceMonitor":{"annotations":{},"enabled":false,"interval":"10s","labels":{}}}``
+     - ``{"enabled":null,"port":9965,"serviceAnnotations":{},"serviceMonitor":{"annotations":{},"enabled":false,"interval":"10s","labels":{},"metricRelabelings":null}}``
    * - hubble.metrics.enabled
      - Configures the list of metrics to collect. If empty or null, metrics are disabled. Example:    enabled:   - dns:query;ignoreAAAA   - drop   - tcp   - flow   - icmp   - http  You can specify the list of metrics from the helm CLI:    --set metrics.enabled="{dns:query;ignoreAAAA,drop,tcp,flow,icmp,http}"
      - string
@@ -749,6 +757,10 @@
      - Labels to add to ServiceMonitor hubble
      - object
      - ``{}``
+   * - hubble.metrics.serviceMonitor.metricRelabelings
+     - Metrics relabeling configs for the ServiceMonitor hubble
+     - string
+     - ``nil``
    * - hubble.peerService.clusterDomain
      - The cluster domain to use to query the Hubble Peer service. It should be the local cluster.
      - string
@@ -820,7 +832,7 @@
    * - hubble.relay.prometheus
      - Enable prometheus metrics for hubble-relay on the configured port at /metrics
      - object
-     - ``{"enabled":false,"port":9966,"serviceMonitor":{"annotations":{},"enabled":false,"interval":"10s","labels":{}}}``
+     - ``{"enabled":false,"port":9966,"serviceMonitor":{"annotations":{},"enabled":false,"interval":"10s","labels":{},"metricRelabelings":null}}``
    * - hubble.relay.prometheus.serviceMonitor.annotations
      - Annotations to add to ServiceMonitor hubble-relay
      - object
@@ -837,6 +849,10 @@
      - Labels to add to ServiceMonitor hubble-relay
      - object
      - ``{}``
+   * - hubble.relay.prometheus.serviceMonitor.metricRelabelings
+     - Metrics relabeling configs for the ServiceMonitor hubble-relay
+     - string
+     - ``nil``
    * - hubble.relay.replicas
      - Number of replicas run for the hubble-relay deployment.
      - int
@@ -984,7 +1000,7 @@
    * - hubble.ui.backend.image
      - Hubble-ui backend image.
      - object
-     - ``{"override":null,"pullPolicy":"Always","repository":"quay.io/cilium/hubble-ui-backend","tag":"v0.9.1@sha256:c4b86e0d7a38d52c6ea3d9d7b17809e5212efd97494e8bd37c8466ddd68d42d0"}``
+     - ``{"override":null,"pullPolicy":"Always","repository":"quay.io/cilium/hubble-ui-backend","tag":"v0.9.2@sha256:a3ac4d5b87889c9f7cc6323e86d3126b0d382933bd64f44382a92778b0cde5d7"}``
    * - hubble.ui.backend.resources
      - Resource requests and limits for the 'backend' container of the 'hubble-ui' deployment.
      - object
@@ -1000,11 +1016,15 @@
    * - hubble.ui.frontend.image
      - Hubble-ui frontend image.
      - object
-     - ``{"override":null,"pullPolicy":"Always","repository":"quay.io/cilium/hubble-ui","tag":"v0.9.1@sha256:baff611b975cb12307a163c0e547e648da211384eabdafd327707ff2ec31cc24"}``
+     - ``{"override":null,"pullPolicy":"Always","repository":"quay.io/cilium/hubble-ui","tag":"v0.9.2@sha256:d3596efc94a41c6b772b9afe6fe47c17417658956e04c3e2a28d293f2670663e"}``
    * - hubble.ui.frontend.resources
      - Resource requests and limits for the 'frontend' container of the 'hubble-ui' deployment.
      - object
      - ``{}``
+   * - hubble.ui.frontend.server.ipv6
+     - Controls server listener for ipv6
+     - object
+     - ``{"enabled":true}``
    * - hubble.ui.ingress
      - hubble-ui ingress configuration.
      - object
@@ -1109,8 +1129,8 @@
      - Enforce https for host having matching TLS host in Ingress. Incoming traffic to http listener will return 308 http error code with respective location in header.
      - bool
      - ``true``
-   * - ingressController.ingressLBAnnotations
-     - IngressLBAnnotations are the annotations which are needed to propagate from Ingress to the Load Balancer
+   * - ingressController.ingressLBAnnotationPrefixes
+     - IngressLBAnnotations are the annotation prefixes, which are used to filter annotations to propagate from Ingress to the Load Balancer service
      - list
      - ``["service.beta.kubernetes.io","service.kubernetes.io","cloud.google.com"]``
    * - ingressController.secretsNamespace
@@ -1396,7 +1416,7 @@
    * - operator.prometheus
      - Enable prometheus metrics for cilium-operator on the configured port at /metrics
      - object
-     - ``{"enabled":false,"port":9963,"serviceMonitor":{"annotations":{},"enabled":false,"interval":"10s","labels":{}}}``
+     - ``{"enabled":false,"port":9963,"serviceMonitor":{"annotations":{},"enabled":false,"interval":"10s","labels":{},"metricRelabelings":null}}``
    * - operator.prometheus.serviceMonitor.annotations
      - Annotations to add to ServiceMonitor cilium-operator
      - object
@@ -1413,6 +1433,10 @@
      - Labels to add to ServiceMonitor cilium-operator
      - object
      - ``{}``
+   * - operator.prometheus.serviceMonitor.metricRelabelings
+     - Metrics relabeling configs for the ServiceMonitor cilium-operator
+     - string
+     - ``nil``
    * - operator.removeNodeTaints
      - Remove Cilium node taint from Kubernetes nodes that have a healthy Cilium pod running.
      - bool
@@ -1556,7 +1580,7 @@
    * - prometheus
      - Configure prometheus metrics on the configured port at /metrics
      - object
-     - ``{"enabled":false,"metrics":null,"port":9962,"serviceMonitor":{"annotations":{},"enabled":false,"interval":"10s","labels":{}}}``
+     - ``{"enabled":false,"metrics":null,"port":9962,"serviceMonitor":{"annotations":{},"enabled":false,"interval":"10s","labels":{},"metricRelabelings":null}}``
    * - prometheus.metrics
      - Metrics that should be enabled or disabled from the default metric list. (+metric_foo to enable metric_foo , -metric_bar to disable metric_bar). ref: https://docs.cilium.io/en/stable/operations/metrics/#exported-metrics
      - string
@@ -1577,6 +1601,10 @@
      - Labels to add to ServiceMonitor cilium-agent
      - object
      - ``{}``
+   * - prometheus.serviceMonitor.metricRelabelings
+     - Metrics relabeling configs for the ServiceMonitor cilium-agent
+     - string
+     - ``nil``
    * - proxy
      - Configure Istio proxy options.
      - object
@@ -1611,6 +1639,14 @@
      - ``{}``
    * - rollOutCiliumPods
      - Roll out cilium agent pods automatically when configmap is updated.
+     - bool
+     - ``false``
+   * - sctp
+     - SCTP Configuration Values
+     - object
+     - ``{"enabled":false}``
+   * - sctp.enabled
+     - Enable SCTP support. NOTE: Currently, SCTP support does not support rewriting ports or multihoming.
      - bool
      - ``false``
    * - securityContext

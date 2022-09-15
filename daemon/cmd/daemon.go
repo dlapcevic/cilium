@@ -14,7 +14,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cilium/ebpf/rlimit"
 	"github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sync/semaphore"
@@ -453,13 +452,6 @@ func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr *endpointmanag
 	}
 	lbmap.Init(lbmapInitParams)
 
-	if option.Config.DryMode == false {
-		if err := rlimit.RemoveMemlock(); err != nil {
-			log.WithError(err).Error("unable to set memory resource limits")
-			return nil, nil, fmt.Errorf("unable to set memory resource limits: %w", err)
-		}
-	}
-
 	authKeySize, encryptKeyID, err := setupIPSec()
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to setup encryption: %s", err)
@@ -842,6 +834,11 @@ func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr *endpointmanag
 		bootstrapStats.fqdn.EndError(err)
 		return nil, restoredEndpoints, err
 	}
+	// This is done in preCleanup so that proxy stops serving DNS traffic before shutdown
+	cleaner.preCleanupFuncs.Add(func() {
+		proxy.DefaultDNSProxy.Cleanup()
+	})
+
 	bootstrapStats.fqdn.End(true)
 
 	if k8s.IsEnabled() {
@@ -947,7 +944,7 @@ func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr *endpointmanag
 		}
 	}
 	if option.Config.EnableIPv4EgressGateway {
-		if !probes.NewProbeManager().GetMisc().HaveLargeInsnLimit {
+		if probes.HaveLargeInstructionLimit() != nil {
 			log.WithError(err).Error("egress gateway needs kernel 5.2 or newer")
 			return nil, nil, fmt.Errorf("egress gateway needs kernel 5.2 or newer")
 		}
@@ -999,6 +996,12 @@ func NewDaemon(ctx context.Context, cleaner *daemonCleanup, epMgr *endpointmanag
 		msg := "host firewall's external facing device could not be determined. Use --%s to specify."
 		log.WithError(err).Errorf(msg, option.Devices)
 		return nil, nil, fmt.Errorf(msg, option.Devices)
+	}
+	if option.Config.EnableSCTP {
+		if probes.HaveLargeInstructionLimit() != nil {
+			log.WithError(err).Error("SCTP support needs kernel 5.2 or newer")
+			return nil, nil, fmt.Errorf("SCTP support needs kernel 5.2 or newer")
+		}
 	}
 
 	bigtcp.InitBIGTCP(&d.bigTCPConfig)

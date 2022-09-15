@@ -14,6 +14,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/asm"
+	"github.com/cilium/ebpf/rlimit"
 	"github.com/go-openapi/loads"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -249,6 +252,9 @@ func initializeFlags() {
 	flags.MarkHidden(option.SRv6EncapModeName)
 	option.BindEnv(Vp, option.SRv6EncapModeName)
 
+	flags.Bool(option.EnableSCTPName, defaults.EnableSCTP, "Enable SCTP support (beta)")
+	option.BindEnv(Vp, option.EnableSCTPName)
+
 	flags.String(option.IPv6MCastDevice, "", "Device that joins a Solicited-Node multicast group for IPv6")
 	option.BindEnv(Vp, option.IPv6MCastDevice)
 
@@ -406,6 +412,9 @@ func initializeFlags() {
 
 	flags.String(option.IPAM, ipamOption.IPAMClusterPool, "Backend to use for IPAM")
 	option.BindEnv(Vp, option.IPAM)
+
+	flags.String(option.CNIChainingMode, "", "Enable CNI chaining with the specified plugin")
+	option.BindEnv(Vp, option.CNIChainingMode)
 
 	flags.String(option.IPv4Range, AutoCIDR, "Per-node IPv4 endpoint prefix, e.g. 10.16.0.0/16")
 	option.BindEnv(Vp, option.IPv4Range)
@@ -1219,6 +1228,12 @@ func initEnv() {
 		scopedLog.Fatalf("Invalid %s value %d", option.MaxCtrlIntervalName, option.Config.MaxControllerInterval)
 	}
 
+	// set rlimit Memlock to INFINITY before creating any bpf resources.
+	if !option.Config.DryMode {
+		if err := rlimit.RemoveMemlock(); err != nil {
+			log.WithError(err).Fatal("unable to set memory resource limits")
+		}
+	}
 	linuxdatapath.CheckMinRequirements()
 
 	if err := pidfile.Write(defaults.PidFilePath); err != nil {
@@ -1341,7 +1356,7 @@ func initEnv() {
 		if !option.Config.EnableIPv6 {
 			log.Fatalf("SRv6 requires IPv6.")
 		}
-		if !probes.NewProbeManager().GetMapTypes().HaveLruHashMapType {
+		if probes.HaveMapType(ebpf.LRUHash) != nil {
 			log.Fatalf("SRv6 requires support for BPF LRU maps (Linux 4.10 or later).")
 		}
 	}
@@ -1399,8 +1414,7 @@ func initEnv() {
 		if !option.Config.EnableIPv4 {
 			option.Config.EnableIPv4FragmentsTracking = false
 		} else {
-			supportedMapTypes := probes.NewProbeManager().GetMapTypes()
-			if !supportedMapTypes.HaveLruHashMapType {
+			if probes.HaveMapType(ebpf.LRUHash) != nil {
 				option.Config.EnableIPv4FragmentsTracking = false
 				log.Info("Disabled support for IPv4 fragments due to missing kernel support for BPF LRU maps")
 			}
@@ -1408,11 +1422,9 @@ func initEnv() {
 	}
 
 	if option.Config.EnableBPFTProxy {
-		if h := probes.NewProbeManager().GetHelpers("sched_act"); h != nil {
-			if _, ok := h["bpf_sk_assign"]; !ok {
-				option.Config.EnableBPFTProxy = false
-				log.Info("Disabled support for BPF TProxy due to missing kernel support for socket assign (Linux 5.7 or later)")
-			}
+		if probes.HaveProgramHelper(ebpf.SchedCLS, asm.FnSkAssign) != nil {
+			option.Config.EnableBPFTProxy = false
+			log.Info("Disabled support for BPF TProxy due to missing kernel support for socket assign (Linux 5.7 or later)")
 		}
 	}
 
@@ -1560,6 +1572,10 @@ func registerDaemonHooks(lc fx.Lifecycle, shutdowner fx.Shutdowner) error {
 	cleaner := NewDaemonCleanup()
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
+			bootstrapStats.earlyInit.Start()
+			initEnv()
+			bootstrapStats.earlyInit.End(true)
+
 			// Start running the daemon in the background (blocks on API server's Serve()) to allow rest
 			// of the start hooks to run.
 			go runDaemon(ctx, cleaner, shutdowner)
@@ -1576,10 +1592,6 @@ func registerDaemonHooks(lc fx.Lifecycle, shutdowner fx.Shutdowner) error {
 
 // runDaemon runs the old unmodular part of the cilium-agent.
 func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shutdowner) {
-	bootstrapStats.earlyInit.Start()
-	initEnv()
-	bootstrapStats.earlyInit.End(true)
-
 	datapathConfig := linuxdatapath.DatapathConfiguration{
 		HostDevice: defaults.HostDevice,
 		ProcFs:     option.Config.ProcFs,
@@ -1986,12 +1998,10 @@ func initSockmapOption() {
 	if !option.Config.SockopsEnable {
 		return
 	}
-	if probes.NewProbeManager().GetMapTypes().HaveSockhashMapType {
-		k := probes.NewProbeManager().GetHelpers("sock_ops")
-		h := probes.NewProbeManager().GetHelpers("sk_msg")
-		if h != nil && k != nil {
-			return
-		}
+	if probes.HaveMapType(ebpf.SockHash) == nil &&
+		probes.HaveProgramType(ebpf.SockOps) == nil &&
+		probes.HaveProgramType(ebpf.SkMsg) == nil {
+		return
 	}
 	log.Warn("BPF Sock ops not supported by kernel. Disabling '--sockops-enable' feature.")
 	option.Config.SockopsEnable = false
@@ -2011,12 +2021,10 @@ func initClockSourceOption() {
 		}
 
 		if option.Config.EnableBPFClockProbe {
-			if h := probes.NewProbeManager().GetHelpers("xdp"); h != nil {
-				if _, ok := h["bpf_jiffies64"]; ok {
-					t, err := bpf.GetJtime()
-					if err == nil && t > 0 {
-						option.Config.ClockSource = option.ClockSourceJiffies
-					}
+			if probes.HaveProgramHelper(ebpf.XDP, asm.FnJiffies64) == nil {
+				t, err := bpf.GetJtime()
+				if err == nil && t > 0 {
+					option.Config.ClockSource = option.ClockSourceJiffies
 				}
 			}
 		}

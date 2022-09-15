@@ -31,7 +31,7 @@ func init() {
   "info": {
     "description": "Cilium",
     "title": "Cilium API",
-    "version": "v1beta"
+    "version": "v1beta1"
   },
   "basePath": "/v1",
   "paths": {
@@ -1625,6 +1625,12 @@ func init() {
             "quarantined",
             "maintenance"
           ]
+        },
+        "weight": {
+          "description": "Backend weight",
+          "type": "integer",
+          "format": "uint16",
+          "x-nullable": true
         }
       }
     },
@@ -3486,6 +3492,7 @@ func init() {
           "enum": [
             "TCP",
             "UDP",
+            "SCTP",
             "ICMP",
             "ICMPV6",
             "ANY"
@@ -3636,6 +3643,7 @@ func init() {
           "enum": [
             "TCP",
             "UDP",
+            "SCTP",
             "ANY"
           ]
         },
@@ -4342,7 +4350,7 @@ func init() {
   "info": {
     "description": "Cilium",
     "title": "Cilium API",
-    "version": "v1beta"
+    "version": "v1beta1"
   },
   "basePath": "/v1",
   "paths": {
@@ -6111,6 +6119,12 @@ func init() {
             "quarantined",
             "maintenance"
           ]
+        },
+        "weight": {
+          "description": "Backend weight",
+          "type": "integer",
+          "format": "uint16",
+          "x-nullable": true
         }
       }
     },
@@ -8329,6 +8343,7 @@ func init() {
           "enum": [
             "TCP",
             "UDP",
+            "SCTP",
             "ICMP",
             "ICMPV6",
             "ANY"
@@ -8479,6 +8494,7 @@ func init() {
           "enum": [
             "TCP",
             "UDP",
+            "SCTP",
             "ANY"
           ]
         },

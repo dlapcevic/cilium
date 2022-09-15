@@ -372,6 +372,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ClusterIP(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		},
@@ -406,6 +407,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ClusterIP(c *C) {
 							Port:     81,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		},
@@ -431,6 +433,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ClusterIP(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 				{
 					FEPortName: "port-udp-80",
@@ -441,6 +444,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ClusterIP(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		},
@@ -484,6 +488,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ClusterIP(c *C) {
 							Port:     81,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 				{
 					FEPortName: "port-tcp-81",
@@ -494,6 +499,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ClusterIP(c *C) {
 							Port:     81,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		},
@@ -646,6 +652,7 @@ func (s *K8sWatcherSuite) TestChangeSVCPort(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		},
@@ -662,6 +669,7 @@ func (s *K8sWatcherSuite) TestChangeSVCPort(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		},
@@ -827,6 +835,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_NodePort(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		},
@@ -861,6 +870,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_NodePort(c *C) {
 							Port:     8081,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		},
@@ -885,6 +895,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_NodePort(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		}
@@ -930,6 +941,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_NodePort(c *C) {
 							Port:     8081,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		}
@@ -955,6 +967,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_NodePort(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 				{
 					FEPortName: "port-udp-80",
@@ -965,6 +978,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_NodePort(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		},
@@ -1008,6 +1022,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_NodePort(c *C) {
 							Port:     8081,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 				{
 					FEPortName: "port-tcp-81",
@@ -1018,6 +1033,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_NodePort(c *C) {
 							Port:     8081,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		},
@@ -1037,6 +1053,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_NodePort(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 				{
 					FEPortName: "port-udp-80",
@@ -1047,6 +1064,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_NodePort(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		}
@@ -1091,6 +1109,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_NodePort(c *C) {
 							Port:     8081,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 				{
 					FEPortName: "port-tcp-81",
@@ -1101,6 +1120,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_NodePort(c *C) {
 							Port:     8081,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		}
@@ -1316,6 +1336,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_GH9576_1(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		},
@@ -1332,6 +1353,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_GH9576_1(c *C) {
 							Port:     8081,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		},
@@ -1350,6 +1372,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_GH9576_1(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		}
@@ -1368,6 +1391,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_GH9576_1(c *C) {
 							Port:     8081,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		}
@@ -1389,6 +1413,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_GH9576_1(c *C) {
 							Port:     8081,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		},
@@ -1405,6 +1430,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_GH9576_1(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		},
@@ -1609,6 +1635,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_GH9576_2(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		},
@@ -1625,6 +1652,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_GH9576_2(c *C) {
 							Port:     8081,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		},
@@ -1643,6 +1671,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_GH9576_2(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		}
@@ -1661,6 +1690,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_GH9576_2(c *C) {
 							Port:     8081,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		}
@@ -1680,6 +1710,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_GH9576_2(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		},
@@ -1702,6 +1733,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_GH9576_2(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		}
@@ -1905,6 +1937,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		},
@@ -1939,6 +1972,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8081,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		},
@@ -1964,6 +1998,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		}
@@ -1999,6 +2034,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8081,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		}
@@ -2023,6 +2059,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		}
@@ -2068,6 +2105,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8081,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		}
@@ -2087,6 +2125,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 				{
 					FEPortName: "port-udp-80",
@@ -2097,6 +2136,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		},
@@ -2140,6 +2180,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8081,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 				{
 					FEPortName: "port-tcp-81",
@@ -2150,6 +2191,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8081,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		},
@@ -2169,6 +2211,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 				{
 					FEPortName: "port-udp-80",
@@ -2179,6 +2222,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		}
@@ -2223,6 +2267,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8081,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 				{
 					FEPortName: "port-tcp-81",
@@ -2233,6 +2278,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8081,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		}
@@ -2252,6 +2298,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 				{
 					FEPortName: "port-udp-80",
@@ -2262,6 +2309,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		}
@@ -2306,6 +2354,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8081,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 				{
 					FEPortName: "port-tcp-81",
@@ -2316,6 +2365,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8081,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		}
@@ -2335,6 +2385,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 				{
 					FEPortName: "port-udp-80",
@@ -2345,6 +2396,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		},
@@ -2388,6 +2440,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8081,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 				{
 					FEPortName: "port-tcp-81",
@@ -2398,6 +2451,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8081,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		},
@@ -2417,6 +2471,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 				{
 					FEPortName: "port-udp-80",
@@ -2427,6 +2482,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		}
@@ -2471,6 +2527,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8081,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 				{
 					FEPortName: "port-tcp-81",
@@ -2481,6 +2538,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8081,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		}
@@ -2500,6 +2558,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 				{
 					FEPortName: "port-udp-80",
@@ -2510,6 +2569,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8080,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		}
@@ -2554,6 +2614,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8081,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 				{
 					FEPortName: "port-tcp-81",
@@ -2564,6 +2625,7 @@ func (s *K8sWatcherSuite) Test_addK8sSVCs_ExternalIPs(c *C) {
 							Port:     8081,
 						},
 					},
+					Weight: loadbalancer.DefaultBackendWeight,
 				},
 			},
 		}

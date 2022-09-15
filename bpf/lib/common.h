@@ -46,6 +46,15 @@
 #define CONDITIONAL_PREALLOC BPF_F_NO_PREALLOC
 #endif
 
+#if defined(ENCAP_IFINDEX) || defined(ENABLE_EGRESS_GATEWAY)
+#define HAVE_ENCAP
+
+/* NOT_VTEP_DST is passed to an encapsulation function when the
+ * destination of the tunnel is not a VTEP.
+ */
+#define NOT_VTEP_DST 0
+#endif
+
 /* TODO: ipsec v6 tunnel datapath still needs separate fixing */
 #ifndef ENABLE_IPSEC
 # ifdef ENABLE_IPV6
@@ -55,6 +64,15 @@
 
 /* XDP to SKB transferred meta data. */
 #define XFER_PKT_NO_SVC		1 /* Skip upper service handling. */
+#define XFER_PKT_ENCAP		2 /* needs encap, tunnel info is in metadata. */
+
+/* For use in ctx_get_xfer(), after XDP called ctx_move_xfer(). */
+enum {
+	XFER_FLAGS = 0,		/* XFER_PKT_* */
+	XFER_ENCAP_NODEID = 1,
+	XFER_ENCAP_SECLABEL = 2,
+	XFER_ENCAP_DSTID = 3,
+};
 
 /* These are shared with test/bpf/check-complexity.sh, when modifying any of
  * the below, that script should also be updated.
@@ -414,11 +432,6 @@ enum {
 
 #define IS_ERR(x) (unlikely((x < 0) || (x == CTX_ACT_DROP)))
 
-/* Cilium IPSec code to indicate packet needs to be handled
- * by IPSec stack. Maps to CTX_ACT_OK.
- */
-#define IPSEC_ENDPOINT CTX_ACT_OK
-
 /* Return value to indicate that proxy redirection is required */
 #define POLICY_ACT_PROXY_REDIRECT (1 << 16)
 
@@ -622,7 +635,8 @@ static __always_inline __u32 or_encrypt_key(__u8 key)
 #define TC_INDEX_F_SKIP_HOST_FIREWALL	16
 
 /*
- * For use in ctx_{load,store}_meta(), which operates on sk_buff->cb.
+ * For use in ctx_{load,store}_meta(), which operates on sk_buff->cb or
+ * the cilium_xdp_scratch pad.
  * The verifier only exposes the first 5 slots in cb[], so this enum
  * only contains 5 entries. Aliases are added to the slots to re-use
  * them under different names in different parts of the datapath.
@@ -639,16 +653,19 @@ enum {
 #define	CB_ENCRYPT_MAGIC	CB_SRC_LABEL	/* Alias, non-overlapping */
 #define	CB_DST_ENDPOINT_ID	CB_SRC_LABEL    /* Alias, non-overlapping */
 #define CB_SRV6_SID_1		CB_SRC_LABEL	/* Alias, non-overlapping */
+#define CB_ENCAP_NODEID		CB_SRC_LABEL	/* XDP */
 	CB_IFINDEX,
 #define	CB_ADDR_V4		CB_IFINDEX	/* Alias, non-overlapping */
 #define	CB_ADDR_V6_1		CB_IFINDEX	/* Alias, non-overlapping */
 #define	CB_ENCRYPT_IDENTITY	CB_IFINDEX	/* Alias, non-overlapping */
 #define	CB_IPCACHE_SRC_LABEL	CB_IFINDEX	/* Alias, non-overlapping */
 #define CB_SRV6_SID_2		CB_IFINDEX	/* Alias, non-overlapping */
+#define CB_ENCAP_SECLABEL	CB_IFINDEX	/* XDP */
 	CB_POLICY,
 #define	CB_ADDR_V6_2		CB_POLICY	/* Alias, non-overlapping */
 #define	CB_BACKEND_ID		CB_POLICY	/* Alias, non-overlapping */
 #define CB_SRV6_SID_3		CB_POLICY	/* Alias, non-overlapping */
+#define CB_ENCAP_DSTID		CB_POLICY	/* XDP */
 	CB_NAT,
 #define	CB_ADDR_V6_3		CB_NAT		/* Alias, non-overlapping */
 #define	CB_FROM_HOST		CB_NAT		/* Alias, non-overlapping */
@@ -995,12 +1012,12 @@ static __always_inline int redirect_ep(struct __ctx_buff *ctx __maybe_unused,
 	if (needs_backlog || !is_defined(ENABLE_HOST_ROUTING)) {
 		return ctx_redirect(ctx, ifindex, 0);
 	} else {
-# ifdef ENCAP_IFINDEX
+# ifdef HAVE_ENCAP
 		/* When coming from overlay, we need to set packet type
 		 * to HOST as otherwise we might get dropped in IP layer.
 		 */
 		ctx_change_type(ctx, PACKET_HOST);
-# endif /* ENCAP_IFINDEX */
+# endif /* HAVE_ENCAP */
 		return ctx_redirect_peer(ctx, ifindex, 0);
 	}
 }

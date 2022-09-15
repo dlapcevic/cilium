@@ -3,7 +3,7 @@
 # Copyright Authors of Cilium
 # SPDX-License-Identifier: Apache-2.0
 
-ARG CILIUM_BUILDER_IMAGE=quay.io/cilium/cilium-builder:d1290e43e11d57e210b135cfa10f8754bf1717e1@sha256:0ce2c8206ada06b534b3b81e19bfb48cceefb605217e0d3ad2a242fd07cc7a10
+ARG CILIUM_BUILDER_IMAGE=quay.io/cilium/cilium-builder:47e7b035960c1cb831922b804b788a50e0eb7f0e@sha256:3fe8a65e4964f589f1096078bac939bc628cf1e398bf15a3b8fc3994cdbad8fc
 ARG UBUNTU_IMAGE=docker.io/library/ubuntu:20.04@sha256:cf31af331f38d1d7158470e095b132acd126a7180a54f263d386da88eb681d93
 
 FROM ${UBUNTU_IMAGE} as rootfs
@@ -37,7 +37,7 @@ RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium --mount=
   env GOARCH=arm64 CC=aarch64-linux-gnu-gcc \
     /out/linux/amd64/usr/local/bin/ginkgo build ./ && mv test.test /out/linux/arm64/usr/local/bin/cilium-test
 
-FROM scratch
+FROM scratch as release
 ARG TARGETPLATFORM
 LABEL maintainer="maintainer@cilium.io"
 COPY --from=rootfs / /
