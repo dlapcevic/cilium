@@ -34,11 +34,12 @@ cilium-operator-azure [flags]
       --enable-cilium-endpoint-slice              If set to true, the CiliumEndpointSlice feature is enabled. If any CiliumEndpoints resources are created, updated, or deleted in the cluster, all those changes are broadcast as CiliumEndpointSlice updates to all of the Cilium agents.
       --enable-ipv4                               Enable IPv4 support (default true)
       --enable-ipv6                               Enable IPv6 support (default true)
+      --enable-k8s                                Enable operation of Kubernetes-related services/controllers when using Cilium with Kubernetes (default true)
       --enable-k8s-api-discovery                  Enable discovery of Kubernetes API groups and resources with the discovery API
       --enable-k8s-endpoint-slice                 Enables k8s EndpointSlice feature into Cilium-Operator if the k8s cluster supports it (default true)
       --enable-k8s-event-handover                 Enable k8s event handover to kvstore for improved scalability
       --enable-metrics                            Enable Prometheus metrics
-      --gops-port int                             Port for gops server to listen on (default 9891)
+      --gops-port uint16                          Port for gops server to listen on (default 9891)
   -h, --help                                      help for cilium-operator-azure
       --identity-allocation-mode string           Method to use for identity allocation (default "kvstore")
       --identity-gc-interval duration             GC interval for security identities (default 15m0s)
@@ -60,8 +61,8 @@ cilium-operator-azure [flags]
       --leader-election-lease-duration duration   Duration that non-leader operator candidates will wait before forcing to acquire leadership (default 15s)
       --leader-election-renew-deadline duration   Duration that current acting master will retry refreshing leadership in before giving up the lock (default 10s)
       --leader-election-retry-period duration     Duration that LeaderElector clients should wait between retries of the actions (default 2s)
-      --limit-ipam-api-burst int                  Upper burst limit when accessing external APIs (default 4)
-      --limit-ipam-api-qps float                  Queries per second limit when accessing external IPAM APIs (default 20)
+      --limit-ipam-api-burst int                  Upper burst limit when accessing external APIs (default 20)
+      --limit-ipam-api-qps float                  Queries per second limit when accessing external IPAM APIs (default 4)
       --log-driver strings                        Logging endpoints to use for example syslog
       --log-opt map                               Log driver options for cilium-operator, configmap example for syslog driver: {"syslog.level":"info","syslog.facility":"local4"}
       --nodes-gc-interval duration                GC interval for CiliumNodes (default 5m0s)

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"regexp"
 	"strconv"
@@ -30,6 +31,7 @@ import (
 	"github.com/cilium/cilium/pkg/fqdn/matchpattern"
 	"github.com/cilium/cilium/pkg/identity"
 	secIDCache "github.com/cilium/cilium/pkg/identity/cache"
+	"github.com/cilium/cilium/pkg/ip"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/metrics"
 	"github.com/cilium/cilium/pkg/option"
@@ -56,7 +58,7 @@ const (
 	dnsSourceConnection = "connection"
 )
 
-func identitiesForFQDNSelectorIPs(selectorsWithIPsToUpdate map[policyApi.FQDNSelector][]net.IP, identityAllocator secIDCache.IdentityAllocator) (map[policyApi.FQDNSelector][]*identity.Identity, []*identity.Identity, map[string]*identity.Identity, error) {
+func identitiesForFQDNSelectorIPs(selectorsWithIPsToUpdate map[policyApi.FQDNSelector][]net.IP, identityAllocator secIDCache.IdentityAllocator) (map[policyApi.FQDNSelector][]*identity.Identity, []*identity.Identity, map[netip.Prefix]*identity.Identity, error) {
 	var err error
 
 	// Used to track identities which are allocated in calls to
@@ -65,7 +67,7 @@ func identitiesForFQDNSelectorIPs(selectorsWithIPsToUpdate map[policyApi.FQDNSel
 	// This is best effort, as releasing can fail as well.
 	usedIdentities := make([]*identity.Identity, 0, len(selectorsWithIPsToUpdate))
 	selectorIdentitySliceMapping := make(map[policyApi.FQDNSelector][]*identity.Identity, len(selectorsWithIPsToUpdate))
-	newlyAllocatedIdentities := make(map[string]*identity.Identity)
+	newlyAllocatedIdentities := make(map[netip.Prefix]*identity.Identity)
 
 	// Allocate identities for each IPNet and then map to selector
 	//
@@ -233,7 +235,7 @@ func (d *Daemon) bootstrapFQDN(possibleEndpoints map[uint16]*endpoint.Endpoint, 
 				for _, zombie := range alive {
 					namesToClean = fqdn.KeepUniqueNames(append(namesToClean, zombie.Names...))
 					for _, name := range zombie.Names {
-						activeConnections.Update(lookupTime, name, []net.IP{zombie.IP}, activeConnectionsTTL)
+						activeConnections.Update(lookupTime, name, []netip.Addr{zombie.IP}, activeConnectionsTTL)
 					}
 				}
 
@@ -316,7 +318,7 @@ func (d *Daemon) bootstrapFQDN(possibleEndpoints map[uint16]*endpoint.Endpoint, 
 			alive, _ := possibleEP.DNSZombies.GC()
 			for _, zombie := range alive {
 				for _, name := range zombie.Names {
-					globalCache.Update(lookupTime, name, []net.IP{zombie.IP}, int(2*dnsGCJobInterval.Seconds()))
+					globalCache.Update(lookupTime, name, []netip.Addr{zombie.IP}, int(2*dnsGCJobInterval.Seconds()))
 				}
 			}
 		}
@@ -343,7 +345,7 @@ func (d *Daemon) bootstrapFQDN(possibleEndpoints map[uint16]*endpoint.Endpoint, 
 	}
 	proxy.DefaultDNSProxy, err = dnsproxy.StartDNSProxy("", port, option.Config.ToFQDNsEnableDNSCompression,
 		option.Config.DNSMaxIPsPerRestoredRule, d.lookupEPByIP, d.LookupSecIDByIP, d.lookupIPsBySecID,
-		d.notifyOnDNSMsg, option.Config.DNSProxyConcurrencyLimit)
+		d.notifyOnDNSMsg, option.Config.DNSProxyConcurrencyLimit, option.Config.DNSProxyConcurrencyProcessingGracePeriod)
 	if err == nil {
 		// Increase the ProxyPort reference count so that it will never get released.
 		err = d.l7Proxy.SetProxyPort(proxy.DNSProxyName, proxy.ProxyTypeDNS, proxy.DefaultDNSProxy.GetBindPort(), false)
@@ -372,7 +374,7 @@ func (d *Daemon) updateDNSDatapathRules(ctx context.Context) error {
 // updateSelectors propagates the mapping of FQDNSelector to identity, as well
 // as the set of FQDNSelectors which have no IPs which correspond to them
 // (usually due to TTL expiry), down to policy layer managed by this daemon.
-func (d *Daemon) updateSelectors(ctx context.Context, selectorWithIPsToUpdate map[policyApi.FQDNSelector][]net.IP, selectorsWithoutIPs []policyApi.FQDNSelector) (wg *sync.WaitGroup, usedIdentities []*identity.Identity, newlyAllocatedIdentities map[string]*identity.Identity, err error) {
+func (d *Daemon) updateSelectors(ctx context.Context, selectorWithIPsToUpdate map[policyApi.FQDNSelector][]net.IP, selectorsWithoutIPs []policyApi.FQDNSelector) (wg *sync.WaitGroup, usedIdentities []*identity.Identity, newlyAllocatedIdentities map[netip.Prefix]*identity.Identity, err error) {
 	// Convert set of selectors with IPs to update to set of selectors
 	// with identities corresponding to said IPs.
 	selectorsIdentities, usedIdentities, newlyAllocatedIdentities, err := identitiesForFQDNSelectorIPs(selectorWithIPsToUpdate, d.identityAllocator)
@@ -460,7 +462,7 @@ func (d *Daemon) notifyOnDNSMsg(lookupTime time.Time, ep *endpoint.Endpoint, epI
 		// cache if we don't know that an endpoint asked for it (this is
 		// asserted via ep != nil here and msg.Response && msg.Rcode ==
 		// dns.RcodeSuccess below).
-		err := errors.New("DNS request cannot be associated with an existing endpoint")
+		err := dnsproxy.ErrDNSRequestNoEndpoint{}
 		log.WithFields(logrus.Fields{
 			logfields.L3n4Addr: epIPPort,
 		}).WithError(err).Error("cannot find matching endpoint")
@@ -514,7 +516,7 @@ func (d *Daemon) notifyOnDNSMsg(lookupTime time.Time, ep *endpoint.Endpoint, epI
 			IPs:               responseIPs,
 			TTL:               TTL,
 			CNAMEs:            CNAMEs,
-			ObservationSource: accesslog.DNSSourceProxy,
+			ObservationSource: stat.DataSource,
 			RCode:             rcode,
 			QTypes:            qTypes,
 			AnswerTypes:       recordTypes,
@@ -532,7 +534,7 @@ func (d *Daemon) notifyOnDNSMsg(lookupTime time.Time, ep *endpoint.Endpoint, epI
 		// doesn't happen in the case, we play it safe and don't purge the zombie
 		// in case of races.
 		log.WithField(logfields.EndpointID, ep.ID).Debug("Recording DNS lookup in endpoint specific cache")
-		if updated := ep.DNSHistory.Update(lookupTime, qname, responseIPs, int(TTL)); updated {
+		if updated := ep.DNSHistory.Update(lookupTime, qname, ip.MustAddrsFromIPs(responseIPs), int(TTL)); updated {
 			ep.DNSZombies.ForceExpireByNameIP(lookupTime, qname, responseIPs...)
 			ep.SyncEndpointHeaderFile()
 		}
@@ -748,7 +750,7 @@ func extractDNSLookups(endpoints []*endpoint.Endpoint, CIDRStr, matchPatternStr,
 			// only proceed if any IP matches the cidr selector
 			anIPMatches := false
 			for _, ip := range lookup.IPs {
-				anIPMatches = anIPMatches || cidrMatcher(ip)
+				anIPMatches = anIPMatches || cidrMatcher(ip.AsSlice())
 				IPStrings = append(IPStrings, ip.String())
 			}
 			if !anIPMatches {
@@ -816,14 +818,14 @@ func deleteDNSLookups(globalCache *fqdn.DNSCache, endpoints []*endpoint.Endpoint
 		namesToRegen = append(namesToRegen, ep.DNSHistory.ForceExpire(expireLookupsBefore, nameMatcher)...)
 		globalCache.UpdateFromCache(ep.DNSHistory, nil)
 
-		namesToRegen = append(namesToRegen, ep.DNSZombies.ForceExpire(expireLookupsBefore, nameMatcher, nil)...)
+		namesToRegen = append(namesToRegen, ep.DNSZombies.ForceExpire(expireLookupsBefore, nameMatcher)...)
 		activeConnections := fqdn.NewDNSCache(0)
 		zombies, _ := ep.DNSZombies.GC()
 		lookupTime := time.Now()
 		for _, zombie := range zombies {
 			namesToRegen = append(namesToRegen, zombie.Names...)
 			for _, name := range zombie.Names {
-				activeConnections.Update(lookupTime, name, []net.IP{zombie.IP}, 0)
+				activeConnections.Update(lookupTime, name, []netip.Addr{zombie.IP}, 0)
 			}
 		}
 		globalCache.UpdateFromCache(activeConnections, nil)

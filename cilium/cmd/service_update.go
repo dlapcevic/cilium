@@ -13,9 +13,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/cilium/cilium/api/v1/models"
+	cmtypes "github.com/cilium/cilium/pkg/clustermesh/types"
 	datapathOption "github.com/cilium/cilium/pkg/datapath/option"
 	"github.com/cilium/cilium/pkg/loadbalancer"
-	"github.com/cilium/cilium/pkg/option"
 )
 
 var (
@@ -157,7 +157,15 @@ func updateService(cmd *cobra.Command, args []string) {
 	}
 
 	if len(backendWeights) > 0 {
-		if option.Config.DatapathMode != datapathOption.DatapathModeLBOnly {
+		resp, err := client.ConfigGet()
+		if err != nil {
+			Fatalf("Unable to retrieve cilium configuration: %s", err)
+		}
+		if resp.Status == nil {
+			Fatalf("Unable to retrieve cilium configuration: empty response")
+		}
+
+		if resp.Status.DatapathMode != datapathOption.DatapathModeLBOnly {
 			Fatalf("Backend weights are supported currently only in lb-only mode")
 		}
 		if len(backendWeights) != len(backends) {
@@ -186,7 +194,7 @@ func updateService(cmd *cobra.Command, args []string) {
 		}
 
 		// Backend ID will be set by the daemon
-		be := loadbalancer.NewBackend(0, loadbalancer.TCP, beAddr.IP, uint16(beAddr.Port))
+		be := loadbalancer.NewBackend(0, loadbalancer.TCP, cmtypes.MustAddrClusterFromIP(beAddr.IP), uint16(beAddr.Port))
 
 		if !skipFrontendCheck && fa.Port == 0 && beAddr.Port != 0 {
 			Fatalf("L4 backend found (%v) with L3 frontend", beAddr)

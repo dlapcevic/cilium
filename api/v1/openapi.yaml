@@ -1727,6 +1727,9 @@ definitions:
       kvstore:
         description: Status of key/value datastore
         "$ref": "#/definitions/Status"
+      cni-file:
+        description: Status of the CNI configuration file
+        "$ref": "#/definitions/Status"
       container-runtime:
         description: Status of local container runtime
         "$ref": "#/definitions/Status"
@@ -2044,6 +2047,15 @@ definitions:
               enabled:
                 type: boolean
           nat46X64:
+            description: |-
+
+
+              +k8s:deepcopy-gen=true
+            type: object
+            properties:
+              enabled:
+                type: boolean
+          socketLBTracing:
             description: |-
 
 

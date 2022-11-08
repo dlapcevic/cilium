@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
-//go:build !privileged_tests && integration_tests
+//go:build integration_tests
 
 package endpoint
 
 import (
 	"context"
 	"net"
+	"net/netip"
 	"reflect"
 	"strings"
 	"testing"
@@ -16,7 +17,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	. "gopkg.in/check.v1"
 
-	"github.com/cilium/cilium/pkg/addressing"
 	"github.com/cilium/cilium/pkg/datapath"
 	"github.com/cilium/cilium/pkg/datapath/fake"
 	"github.com/cilium/cilium/pkg/endpoint/regeneration"
@@ -38,11 +38,6 @@ import (
 	"github.com/cilium/cilium/pkg/policy"
 	"github.com/cilium/cilium/pkg/policy/api"
 	testidentity "github.com/cilium/cilium/pkg/testutils/identity"
-)
-
-var (
-	IPv6Addr, _ = addressing.NewCiliumIPv6("beef:beef:beef:beef:aaaa:aaaa:1111:1112")
-	IPv4Addr, _ = addressing.NewCiliumIPv4("10.11.12.13")
 )
 
 // Hook up gocheck into the "go test" runner.
@@ -134,7 +129,7 @@ type fakeIdentityAllocator struct {
 	*cache.CachingIdentityAllocator
 }
 
-func (f fakeIdentityAllocator) AllocateCIDRsForIPs([]net.IP, map[string]*identity.Identity) ([]*identity.Identity, error) {
+func (f fakeIdentityAllocator) AllocateCIDRsForIPs([]net.IP, map[netip.Prefix]*identity.Identity) ([]*identity.Identity, error) {
 	return nil, nil
 }
 

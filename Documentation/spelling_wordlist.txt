@@ -100,6 +100,7 @@ MiB
 Minikube
 Monnet
 Mythbusters
+NativeRoutingCIDR
 NeighDiscovery
 Netronome
 NewProto
@@ -171,6 +172,7 @@ apiKeys
 apiVersion
 apiserver
 app
+applySysctlOverwrites
 apps
 archs
 arithmetics
@@ -252,9 +254,11 @@ cheatsheet
 ci
 cidr
 cidrs
+ciliumAgent
 classful
 classid
 cleanBpfState
+cleanCiliumState
 cleanState
 cli
 clockProbe
@@ -343,10 +347,12 @@ disassembly
 discoverable
 distro
 distros
+dmesg
 dns
 dnsPolicy
 dnsProxy
 dnsRejectResponseCode
+dockerd
 dockerhub
 dpaa
 dports
@@ -374,9 +380,11 @@ enableIPv
 enableIdentityMark
 enableIngressController
 enableK
+enableOpenMetrics
 enableRuntimeDeviceDetection
 enableXTSocketFallback
 enablement
+endPort
 endian
 endianness
 endpointGCInterval
@@ -398,6 +406,8 @@ eventQueueSize
 extendable
 extensibility
 extern
+externalAPILimitBurstSize
+externalAPILimitQPS
 externalIPs
 externalWorkloads
 extraArgs
@@ -435,6 +445,9 @@ functionalities
 fwmark
 gRPC
 gVNIC
+gatewayAPI
+gcInterval
+gcTags
 gcc
 gcloud
 gcp
@@ -473,6 +486,7 @@ hostAliases
 hostBoot
 hostConfDirMountPath
 hostFirewall
+hostLegacyRouting
 hostNetwork
 hostPath
 hostPort
@@ -565,6 +579,7 @@ kata
 keepDeprecatedLabels
 keepDeprecatedProbes
 keyFile
+keyless
 keypair
 keyspace
 keyspaces
@@ -614,6 +629,7 @@ llvm
 loadBalancer
 loadbalancer
 loadbalancerIP
+loadbalancerMode
 loadbalancers
 loadbalancing
 localRedirectPolicy
@@ -665,6 +681,7 @@ mlx
 monitorAggregation
 monitorFlags
 monitorInterval
+mountCgroup
 mountHostBoot
 mountPath
 mov
@@ -713,6 +730,7 @@ nodeSelector
 nodeX
 nodegroup
 nodeinit
+nodeport
 nonMasqueradeCIDRs
 numReplicas
 observability
@@ -743,6 +761,7 @@ pluggable
 plugin
 plugins
 pmdabcc
+pmtuDiscovery
 png
 podAnnotations
 podCIDR
@@ -762,6 +781,8 @@ pre
 preCache
 preallocateMaps
 prebuild
+preconfigured
+preferIpv
 prefilter
 preflight
 preload
@@ -902,6 +923,7 @@ startup
 startupProbe
 stateful
 statefulset
+statelessNat
 statsd
 stdout
 structs
@@ -1014,6 +1036,7 @@ virtio
 virtualbox
 virtualization
 vlan
+vlanBypass
 vmlinux
 volumeMounts
 vrf

@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
-//go:build !privileged_tests
-
 package bgpv1
 
 import (
+	"errors"
 	"testing"
 )
 
@@ -47,7 +46,7 @@ func TestAnnotation(t *testing.T) {
 			if attr.RouterID != tt.attr.RouterID {
 				t.Fatalf("got: %v, want: %v", attr.RouterID, tt.attr.RouterID)
 			}
-			if err != tt.error {
+			if !errors.Is(err, tt.error) {
 				t.Fatalf("got: %v, want: %v", err, tt.error)
 			}
 		})

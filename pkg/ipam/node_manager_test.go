@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
-//go:build !privileged_tests
-
 package ipam
 
 import (
@@ -60,13 +58,6 @@ func (a *allocationImplementationMock) Resync(ctx context.Context) time.Time {
 	return time.Now()
 }
 
-func (a *allocationImplementationMock) HasInstance(instanceID string) bool {
-	return true
-}
-
-func (a *allocationImplementationMock) DeleteInstance(instanceID string) {
-}
-
 type nodeOperationsMock struct {
 	allocator *allocationImplementationMock
 
@@ -103,7 +94,6 @@ func (n *nodeOperationsMock) PrepareIPAllocation(scopedLog *logrus.Entry) (*Allo
 	return &AllocationAction{
 		PoolID:                 testPoolID,
 		AvailableForAllocation: n.allocator.poolSize - n.allocator.allocatedIPs,
-		AvailableInterfaces:    0,
 	}, nil
 }
 
@@ -176,8 +166,7 @@ func (e *IPAMSuite) TestGetNodeNames(c *check.C) {
 	c.Assert(err, check.IsNil)
 	c.Assert(mngr, check.Not(check.IsNil))
 
-	node1 := newCiliumNode("node1", 0, 0, 0)
-	mngr.Update(node1)
+	mngr.Update(newCiliumNode("node1", 0, 0, 0))
 
 	names := mngr.GetNames()
 	c.Assert(len(names), check.Equals, 1)
@@ -188,7 +177,7 @@ func (e *IPAMSuite) TestGetNodeNames(c *check.C) {
 	names = mngr.GetNames()
 	c.Assert(len(names), check.Equals, 2)
 
-	mngr.Delete(node1)
+	mngr.Delete("node1")
 
 	names = mngr.GetNames()
 	c.Assert(len(names), check.Equals, 1)
@@ -204,13 +193,12 @@ func (e *IPAMSuite) TestNodeManagerGet(c *check.C) {
 
 	// instances.Resync(context.TODO())
 
-	node1 := newCiliumNode("node1", 0, 0, 0)
-	mngr.Update(node1)
+	mngr.Update(newCiliumNode("node1", 0, 0, 0))
 
 	c.Assert(mngr.Get("node1"), check.Not(check.IsNil))
 	c.Assert(mngr.Get("node2"), check.IsNil)
 
-	mngr.Delete(node1)
+	mngr.Delete("node1")
 	c.Assert(mngr.Get("node1"), check.IsNil)
 	c.Assert(mngr.Get("node2"), check.IsNil)
 }

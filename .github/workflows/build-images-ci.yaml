@@ -22,7 +22,11 @@ on:
     types:
      - completed
 
-permissions: read-all
+permissions:
+  # To be able to access the repository with `actions/checkout`
+  contents: read
+  # Required to generate OIDC tokens for `sigstore/cosign-installer` authentication
+  id-token: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.after }}
@@ -60,7 +64,7 @@ jobs:
 
     steps:
       - name: Checkout master branch to access local actions
-        uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
+        uses: actions/checkout@93ea575cb5d8a053eaa0ac8fa3b40d7e05a33cc8
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
@@ -68,10 +72,10 @@ jobs:
         uses: ./.github/actions/set-env-variables
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@dc7b9719a96d48369863986a06765841d7ea23f6
+        uses: docker/setup-buildx-action@8c0edbc76e98fa90f69d9a2c020dcb50019dc325
 
       - name: Login to quay.io for CI
-        uses: docker/login-action@49ed152c8eca782a232dede0303416e8f356c37b
+        uses: docker/login-action@f4ef78c080cd8ba55a85445d5b36e214a81df20a
         with:
           registry: quay.io
           username: ${{ secrets.QUAY_USERNAME_CI }}
@@ -87,14 +91,14 @@ jobs:
           fi
 
       - name: Checkout Source Code
-        uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
+        uses: actions/checkout@93ea575cb5d8a053eaa0ac8fa3b40d7e05a33cc8
         with:
           persist-credentials: false
           ref: ${{ steps.tag.outputs.tag }}
 
       # Load Golang cache build from GitHub
       - name: Load ${{ matrix.name }} Golang cache build from GitHub
-        uses: actions/cache@fd5de65bc895cf536527842281bea11763fefd77
+        uses: actions/cache@9b0c1fce7a93df8e3bb8926b0d6e9d89e92f20a7
         id: cache
         with:
           path: /tmp/.cache/${{ matrix.name }}
@@ -112,7 +116,7 @@ jobs:
 
       # Import GitHub's cache build to docker cache
       - name: Copy ${{ matrix.name }} Golang cache to docker cache
-        uses: docker/build-push-action@c84f38281176d4c9cdb1626ffafcd6b3911b5d94
+        uses: docker/build-push-action@c56af957549030174b10d6867f20e78cfd7debc5
         with:
           context: /tmp/.cache/${{ matrix.name }}
           file: ./images/cache/Dockerfile
@@ -120,10 +124,13 @@ jobs:
           platforms: linux/amd64
           target: import-cache
 
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@9becc617647dfa20ae7b1151972e9b3a2c338a2b
+
       # master branch pushes
       - name: CI Build ${{ matrix.name }}
         if: ${{ github.event_name != 'pull_request_target' }}
-        uses: docker/build-push-action@c84f38281176d4c9cdb1626ffafcd6b3911b5d94
+        uses: docker/build-push-action@c56af957549030174b10d6867f20e78cfd7debc5
         id: docker_build_ci_master
         with:
           context: .
@@ -142,7 +149,7 @@ jobs:
 
       - name: CI race detection Build ${{ matrix.name }}
         if: ${{ github.event_name != 'pull_request_target' }}
-        uses: docker/build-push-action@c84f38281176d4c9cdb1626ffafcd6b3911b5d94
+        uses: docker/build-push-action@c56af957549030174b10d6867f20e78cfd7debc5
         id: docker_build_ci_master_detect_race_condition
         with:
           context: .
@@ -157,14 +164,14 @@ jobs:
             quay.io/${{ env.QUAY_ORGANIZATION_DEV }}/${{ matrix.name }}-ci:${{ steps.tag.outputs.tag }}-race
           target: release
           build-args: |
-            BASE_IMAGE=quay.io/cilium/cilium-runtime:bfcaa2a6a264b600ba0215236110924a30a84ace@sha256:b5c44e0a67f885b54fe79533ddc7e0625b25993d9c910615a6572df8cdec6b62
+            BASE_IMAGE=quay.io/cilium/cilium-runtime:54829a1129ffd8808bd27b412fba20759cb7f994@sha256:05d7b8e50d861a2970ca8cedf69aab1bfc624ba07dd1174465685271640e9726
             LOCKDEBUG=1
             RACE=1
             OPERATOR_VARIANT=${{ matrix.name }}
 
       - name: CI Unstripped Binaries Build ${{ matrix.name }}
         if: ${{ github.event_name != 'pull_request_target' }}
-        uses: docker/build-push-action@c84f38281176d4c9cdb1626ffafcd6b3911b5d94
+        uses: docker/build-push-action@c56af957549030174b10d6867f20e78cfd7debc5
         id: docker_build_ci_master_unstripped
         with:
           context: .
@@ -182,6 +189,15 @@ jobs:
             NOSTRIP=1
             OPERATOR_VARIANT=${{ matrix.name }}
 
+      - name: Sign Container Images
+        if: ${{ github.event_name != 'pull_request_target' }}
+        env:
+          COSIGN_EXPERIMENTAL: "true"
+        run: |
+          cosign sign quay.io/${{ env.QUAY_ORGANIZATION_DEV }}/${{ matrix.name }}-ci@${{ steps.docker_build_ci_master.outputs.digest }}
+          cosign sign quay.io/${{ env.QUAY_ORGANIZATION_DEV }}/${{ matrix.name }}-ci@${{ steps.docker_build_ci_master_detect_race_condition.outputs.digest }}
+          cosign sign quay.io/${{ env.QUAY_ORGANIZATION_DEV }}/${{ matrix.name }}-ci@${{ steps.docker_build_ci_master_unstripped.outputs.digest }}
+
       - name: CI Image Releases digests
         if: ${{ github.event_name != 'pull_request_target' }}
         shell: bash
@@ -197,7 +213,7 @@ jobs:
       # PR updates
       - name: CI Build ${{ matrix.name }}
         if: ${{ github.event_name == 'pull_request_target' }}
-        uses: docker/build-push-action@c84f38281176d4c9cdb1626ffafcd6b3911b5d94
+        uses: docker/build-push-action@c56af957549030174b10d6867f20e78cfd7debc5
         id: docker_build_ci_pr
         with:
           context: .
@@ -212,7 +228,7 @@ jobs:
 
       - name: CI race detection Build ${{ matrix.name }}
         if: ${{ github.event_name == 'pull_request_target' }}
-        uses: docker/build-push-action@c84f38281176d4c9cdb1626ffafcd6b3911b5d94
+        uses: docker/build-push-action@c56af957549030174b10d6867f20e78cfd7debc5
         id: docker_build_ci_pr_detect_race_condition
         with:
           context: .
@@ -223,14 +239,14 @@ jobs:
             quay.io/${{ env.QUAY_ORGANIZATION_DEV }}/${{ matrix.name }}-ci:${{ steps.tag.outputs.tag }}-race
           target: release
           build-args: |
-            BASE_IMAGE=quay.io/cilium/cilium-runtime:bfcaa2a6a264b600ba0215236110924a30a84ace@sha256:b5c44e0a67f885b54fe79533ddc7e0625b25993d9c910615a6572df8cdec6b62
+            BASE_IMAGE=quay.io/cilium/cilium-runtime:54829a1129ffd8808bd27b412fba20759cb7f994@sha256:05d7b8e50d861a2970ca8cedf69aab1bfc624ba07dd1174465685271640e9726
             LOCKDEBUG=1
             RACE=1
             OPERATOR_VARIANT=${{ matrix.name }}
 
       - name: CI Unstripped Binaries Build ${{ matrix.name }}
         if: ${{ github.event_name == 'pull_request_target' }}
-        uses: docker/build-push-action@c84f38281176d4c9cdb1626ffafcd6b3911b5d94
+        uses: docker/build-push-action@c56af957549030174b10d6867f20e78cfd7debc5
         id: docker_build_ci_pr_unstripped
         with:
           context: .
@@ -243,6 +259,15 @@ jobs:
           build-args: |
             NOSTRIP=1
             OPERATOR_VARIANT=${{ matrix.name }}
+
+      - name: Sign Container Images
+        if: ${{ github.event_name == 'pull_request_target' }}
+        env:
+          COSIGN_EXPERIMENTAL: "true"
+        run: |
+          cosign sign quay.io/${{ env.QUAY_ORGANIZATION_DEV }}/${{ matrix.name }}-ci@${{ steps.docker_build_ci_pr.outputs.digest }}
+          cosign sign quay.io/${{ env.QUAY_ORGANIZATION_DEV }}/${{ matrix.name }}-ci@${{ steps.docker_build_ci_pr_detect_race_condition.outputs.digest }}
+          cosign sign quay.io/${{ env.QUAY_ORGANIZATION_DEV }}/${{ matrix.name }}-ci@${{ steps.docker_build_ci_pr_unstripped.outputs.digest }}
 
       - name: CI Image Releases digests
         if: ${{ github.event_name == 'pull_request_target' }}
@@ -264,7 +289,7 @@ jobs:
       # Store docker's golang's cache build locally only on the main branch
       - name: Store ${{ matrix.name }} Golang cache build locally
         if: ${{ github.event_name != 'pull_request_target' && steps.cache.outputs.cache-hit != 'true' }}
-        uses: docker/build-push-action@c84f38281176d4c9cdb1626ffafcd6b3911b5d94
+        uses: docker/build-push-action@c56af957549030174b10d6867f20e78cfd7debc5
         with:
           context: .
           file: ./images/cache/Dockerfile
@@ -301,7 +326,7 @@ jobs:
 
     steps:
       - name: Checkout master branch to access local actions
-        uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
+        uses: actions/checkout@93ea575cb5d8a053eaa0ac8fa3b40d7e05a33cc8
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
@@ -309,27 +334,27 @@ jobs:
         uses: ./.github/actions/set-env-variables
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@8b122486cedac8393e77aa9734c3528886e4a1a8
+        uses: docker/setup-qemu-action@e81a89b1732b9c48d79cd809d8d81d79c4647a18
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@dc7b9719a96d48369863986a06765841d7ea23f6
+        uses: docker/setup-buildx-action@8c0edbc76e98fa90f69d9a2c020dcb50019dc325
 
       - name: Login to quay.io for CI
-        uses: docker/login-action@49ed152c8eca782a232dede0303416e8f356c37b
+        uses: docker/login-action@f4ef78c080cd8ba55a85445d5b36e214a81df20a
         with:
           registry: quay.io
           username: ${{ secrets.QUAY_USERNAME_CI }}
           password: ${{ secrets.QUAY_PASSWORD_CI }}
 
       - name: Checkout Source Code
-        uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
+        uses: actions/checkout@93ea575cb5d8a053eaa0ac8fa3b40d7e05a33cc8
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
 
       # Load Golang cache build from GitHub
       - name: Load ${{ matrix.name }} Golang cache build from GitHub
-        uses: actions/cache@fd5de65bc895cf536527842281bea11763fefd77
+        uses: actions/cache@9b0c1fce7a93df8e3bb8926b0d6e9d89e92f20a7
         id: cache
         with:
           path: /tmp/.cache/${{ matrix.name }}
@@ -347,7 +372,7 @@ jobs:
 
       # Import GitHub's cache build to docker cache
       - name: Copy ${{ matrix.name }} Golang cache to docker cache
-        uses: docker/build-push-action@c84f38281176d4c9cdb1626ffafcd6b3911b5d94
+        uses: docker/build-push-action@c56af957549030174b10d6867f20e78cfd7debc5
         with:
           context: /tmp/.cache/${{ matrix.name }}
           file: ./images/cache/Dockerfile
@@ -356,7 +381,7 @@ jobs:
           target: import-cache
 
       - name: CI Build ${{ matrix.name }}
-        uses: docker/build-push-action@c84f38281176d4c9cdb1626ffafcd6b3911b5d94
+        uses: docker/build-push-action@c56af957549030174b10d6867f20e78cfd7debc5
         id: docker_build_ci_master
         with:
           context: .
@@ -389,7 +414,7 @@ jobs:
       # Store docker's golang's cache build locally only on the main branch
       - name: Store ${{ matrix.name }} Golang cache build locally
         if: ${{ github.event_name != 'pull_request_target' && steps.cache.outputs.cache-hit != 'true' }}
-        uses: docker/build-push-action@c84f38281176d4c9cdb1626ffafcd6b3911b5d94
+        uses: docker/build-push-action@c56af957549030174b10d6867f20e78cfd7debc5
         with:
           context: .
           file: ./images/cache/Dockerfile
@@ -424,7 +449,7 @@ jobs:
           mkdir -p image-digest/
 
       - name: Download digests of all images built
-        uses: actions/download-artifact@fb598a63ae348fa914e94cd0ff38f362e927b741
+        uses: actions/download-artifact@9782bd6a9848b53b110e712e20e42d89988822b7
         with:
           path: image-digest/
 

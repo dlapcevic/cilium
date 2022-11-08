@@ -23,7 +23,7 @@ concurrency:
 env:
   kind_version: v0.11.1
   kind_config: .github/kind-config.yaml
-  cilium_cli_version: v0.12.2
+  cilium_cli_version: v0.12.4
 
 jobs:
   installation-and-connectivity:
@@ -31,7 +31,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout master branch to access local actions
-        uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
+        uses: actions/checkout@93ea575cb5d8a053eaa0ac8fa3b40d7e05a33cc8
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
@@ -85,13 +85,13 @@ jobs:
           cilium version
 
       - name: Checkout code
-        uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
+        uses: actions/checkout@93ea575cb5d8a053eaa0ac8fa3b40d7e05a33cc8
         with:
           ref: ${{ steps.vars.outputs.sha }}
           persist-credentials: false
 
       - name: Create kind cluster
-        uses: helm/kind-action@d08cf6ff1575077dee99962540d77ce91c62387d
+        uses: helm/kind-action@9e8295d178de23cbfbd8fa16cf844eec1d773a07
         with:
           version: ${{ env.kind_version }}
           config: ${{ env.kind_config }}

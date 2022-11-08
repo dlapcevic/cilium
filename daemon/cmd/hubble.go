@@ -18,6 +18,8 @@ import (
 	flowpb "github.com/cilium/cilium/api/v1/flow"
 	"github.com/cilium/cilium/api/v1/models"
 	observerpb "github.com/cilium/cilium/api/v1/observer"
+	cgroupManager "github.com/cilium/cilium/pkg/cgroups/manager"
+	cmtypes "github.com/cilium/cilium/pkg/clustermesh/types"
 	"github.com/cilium/cilium/pkg/crypto/certloader"
 	"github.com/cilium/cilium/pkg/datapath/link"
 	v1 "github.com/cilium/cilium/pkg/hubble/api/v1"
@@ -104,7 +106,7 @@ func (d *Daemon) launchHubble() {
 		}).Info("Starting Hubble Metrics server")
 		grpcMetrics := grpc_prometheus.NewServerMetrics()
 
-		if err := metrics.EnableMetrics(log, option.Config.HubbleMetricsServer, option.Config.HubbleMetrics, grpcMetrics); err != nil {
+		if err := metrics.EnableMetrics(log, option.Config.HubbleMetricsServer, option.Config.HubbleMetrics, grpcMetrics, option.Config.EnableHubbleOpenMetrics); err != nil {
 			logger.WithError(err).Warn("Failed to initialize Hubble metrics server")
 			return
 		}
@@ -176,6 +178,9 @@ func (d *Daemon) launchHubble() {
 	var peerServiceOptions []serviceoption.Option
 	if option.Config.HubbleTLSDisabled {
 		peerServiceOptions = append(peerServiceOptions, serviceoption.WithoutTLSInfo())
+	}
+	if option.Config.HubblePreferIpv6 {
+		peerServiceOptions = append(peerServiceOptions, serviceoption.WithAddressFamilyPreference(serviceoption.AddressPreferIPv6))
 	}
 	peerSvc := peer.NewService(d.nodeDiscovery.Manager, peerServiceOptions...)
 	localSrvOpts = append(localSrvOpts,
@@ -349,8 +354,12 @@ func (d *Daemon) GetNamesOf(sourceEpID uint32, ip net.IP) []string {
 //
 //   - ServiceGetter: https://github.com/cilium/hubble/blob/04ab72591faca62a305ce0715108876167182e04/pkg/parser/getters/getters.go#L52
 func (d *Daemon) GetServiceByAddr(ip net.IP, port uint16) *flowpb.Service {
+	addrCluster, ok := cmtypes.AddrClusterFromIP(ip)
+	if !ok {
+		return nil
+	}
 	addr := loadbalancer.L3n4Addr{
-		IP: ip,
+		AddrCluster: addrCluster,
 		L4Addr: loadbalancer.L4Addr{
 			Port: port,
 		},
@@ -422,4 +431,8 @@ func (d *Daemon) GetK8sStore(name string) k8scache.Store {
 // Hubble's events buffer.
 func getHubbleEventBufferCapacity(logger logrus.FieldLogger) (container.Capacity, error) {
 	return container.NewCapacity(option.Config.HubbleEventBufferCapacity)
+}
+
+func (d *Daemon) GetParentPodMetadata(cgroupId uint64) *cgroupManager.PodMetadata {
+	return d.cgroupManager.GetPodMetadataForContainer(cgroupId)
 }

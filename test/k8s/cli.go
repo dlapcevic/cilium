@@ -10,9 +10,9 @@ import (
 	"github.com/cilium/cilium/test/helpers"
 )
 
-var _ = Describe("K8sCLI", func() {
+var _ = Describe("K8sDatapathCLI", func() {
 	SkipContextIf(func() bool {
-		return helpers.DoesNotRunOnGKE() && helpers.DoesNotRunOnEKS()
+		return helpers.DoesNotRunOnGKE() && helpers.DoesNotRunOnEKS() && helpers.DoesNotRunOnAKS()
 	}, "CLI", func() {
 		var kubectl *helpers.Kubectl
 		var ciliumFilename string

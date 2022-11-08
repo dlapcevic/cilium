@@ -20,22 +20,15 @@ ifdef LIBNETWORK_PLUGIN
 SUBDIRS_CILIUM_CONTAINER += plugins/cilium-docker
 endif
 
-GOFILES_EVAL := $(subst _$(ROOT_DIR)/,,$(shell $(GO_LIST) -find -e ./...))
-GOFILES ?= $(GOFILES_EVAL)
-TESTPKGS_EVAL := $(subst github.com/cilium/cilium/,,$(shell echo $(GOFILES) | \
-		sed 's/ /\n\//g' | \
-		grep -Pv '(/api/v1|/vendor|/contrib|/test$$|/test/(?!controlplane))' | \
-		sed 's/^\///g')) \
-	test/helpers/logutils
-
-TESTPKGS ?= $(TESTPKGS_EVAL)
-GOLANG_SRCFILES := $(shell for pkg in $(subst github.com/cilium/cilium/,,$(GOFILES)); do find $$pkg -name *.go -print; done | grep -v vendor | sort | uniq)
+# Space-separated list of Go packages to test, equivalent to 'go test' package patterns.
+# Because is treated as a Go package pattern, the special '...' sequence is supported,
+# meaning 'all subpackages of the given package'.
+TESTPKGS ?= ./...
 
 SWAGGER_VERSION := v0.25.0
 SWAGGER := $(CONTAINER_ENGINE) run -u $(shell id -u):$(shell id -g) --rm -v $(CURDIR):$(CURDIR) -w $(CURDIR) --entrypoint swagger quay.io/goswagger/swagger:$(SWAGGER_VERSION)
 
 GOTEST_BASE := -test.v -timeout 600s
-GOTEST_UNIT_BASE := $(GOTEST_BASE) -check.vv
 GOTEST_COVER_OPTS += -coverprofile=coverage.out
 BENCH_EVAL := "."
 BENCH ?= $(BENCH_EVAL)
@@ -53,6 +46,9 @@ GO_MAJOR_AND_MINOR_VERSION := $(shell sed 's/\([0-9]\+\).\([0-9]\+\)\(.[0-9]\+\)
 GO_IMAGE_VERSION := $(shell awk -F. '{ z=$$3; if (z == "") z=0; print $$1 "." $$2 "." z}' GO_VERSION)
 GO_INSTALLED_MAJOR_AND_MINOR_VERSION := $(shell $(GO) version | sed 's/go version go\([0-9]\+\).\([0-9]\+\)\(.[0-9]\+\)\?.*/\1.\2/')
 
+GO_CONTAINER := $(CONTAINER_ENGINE) run --rm -v $(CURDIR):$(CURDIR) -w $(CURDIR) golang:$(GO_VERSION)
+GOIMPORTS_VERSION ?= v0.1.12
+
 TEST_LDFLAGS=-ldflags "-X github.com/cilium/cilium/pkg/kvstore.consulDummyAddress=https://consul:8443 \
 	-X github.com/cilium/cilium/pkg/kvstore.etcdDummyAddress=http://etcd:4002 \
 	-X github.com/cilium/cilium/pkg/datapath.DatapathSHA256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
@@ -69,8 +65,7 @@ define generate_k8s_api
 endef
 
 define generate_deepequal
-	cd "./vendor/github.com/cilium/deepequal-gen" && \
-	GO111MODULE=off go run main.go \
+	go run github.com/cilium/deepequal-gen \
 	--input-dirs $(1) \
 	-O zz_generated.deepequal \
 	--go-header-file "$(PWD)/hack/custom-boilerplate.go.txt"
@@ -99,7 +94,10 @@ define generate_k8s_api_deepcopy_deepequal_client
 endef
 
 define generate_k8s_protobuf
-	PATH="$(PWD)/tools:$(PATH)" ./tools/go-to-protobuf \
+	go install k8s.io/code-generator/cmd/go-to-protobuf/protoc-gen-gogo
+	go install golang.org/x/tools/cmd/goimports
+
+	go run k8s.io/code-generator/cmd/go-to-protobuf \
 		--apimachinery-packages='-k8s.io/apimachinery/pkg/util/intstr,$\
                                 -k8s.io/apimachinery/pkg/api/resource,$\
                                 -k8s.io/apimachinery/pkg/runtime/schema,$\
@@ -111,7 +109,7 @@ define generate_k8s_protobuf
 		--proto-import="$(PWD)/vendor" \
 		--proto-import="$(PWD)/tools/protobuf" \
 		--packages=$(1) \
-	    --go-header-file "$(PWD)/hack/custom-boilerplate.go.txt"
+		--go-header-file "$(PWD)/hack/custom-boilerplate.go.txt"
 endef
 
 build: check-sources $(SUBDIRS) ## Builds all the components for Cilium by executing make in the respective sub directories.
@@ -122,23 +120,12 @@ build-container: check-sources ## Builds components required for cilium-agent co
 $(SUBDIRS): force ## Execute default make target(make all) for the provided subdirectory.
 	@ $(MAKE) $(SUBMAKEOPTS) -C $@ all
 
-# If the developer provides TESTPKGS to filter the set of packages to use for testing, filter that to only packages with privileged tests.
-# The period at EOL ensures that if TESTPKGS becomes empty, we can still pass some paths to 'xargs dirname' to avoid errors.
-PRIV_TEST_PKGS_FILTER := $(shell for pkg in $(TESTPKGS); do echo $$pkg; done | xargs grep --include='*.go' -ril 'go:build [^!]*privileged_tests') .
-PRIV_TEST_PKGS_EVAL := $(shell echo $(PRIV_TEST_PKGS_FILTER) | xargs dirname | sort | uniq | grep -Ev '^\.$$')
-PRIV_TEST_PKGS ?= $(PRIV_TEST_PKGS_EVAL)
-tests-privileged: GO_TAGS_FLAGS+=privileged_tests ## Run integration-tests for Cilium that requires elevated privileges.
-tests-privileged:
-	$(MAKE) init-coverage
-	for pkg in $(patsubst %,github.com/cilium/cilium/%,$(PRIV_TEST_PKGS)); do \
-		>&2 $(ECHO_TEST) $$pkg; \
-		PATH=$(PATH):$(ROOT_DIR)/bpf $(GO_TEST) $(TEST_LDFLAGS) $$pkg $(GOTEST_UNIT_BASE) $(GOTEST_COVER_OPTS) -coverpkg $$pkg \
-		|| exit 1; \
-		tail -n +2 coverage.out >> coverage-all-tmp.out; \
-	done | $(GOTEST_FORMATTER)
+tests-privileged: ## Run Go tests including ones that require elevated privileges.
+	PRIVILEGED_TESTS=true PATH=$(PATH):$(ROOT_DIR)/bpf $(GO_TEST) $(TEST_LDFLAGS) \
+		$(TESTPKGS) $(GOTEST_BASE) $(GOTEST_COVER_OPTS) | $(GOTEST_FORMATTER)
 	$(MAKE) generate-cov
 
-start-kvstores: ## Start running kvstores required for running Cilium integration-tests. More specifically this will run etcd and consul containers.
+start-kvstores: ## Start running kvstores (etcd and consul containers) for integration tests.
 ifeq ($(SKIP_KVSTORES),"false")
 	@echo Starting key-value store containers...
 	-$(QUIET)$(CONTAINER_ENGINE) rm -f "cilium-etcd-test-container" 2> /dev/null
@@ -167,74 +154,55 @@ ifeq ($(SKIP_KVSTORES),"false")
 		agent -client=0.0.0.0 -server -bootstrap-expect 1 -config-file=/cilium-consul/consul-config.json
 endif
 
-stop-kvstores: ## Forcefully removes running kvstore components for Cilium unit-testing(etcd and consul containers).
+stop-kvstores: ## Forcefully removes running kvstore components (etcd and consul containers) for integration tests.
 ifeq ($(SKIP_KVSTORES),"false")
 	$(QUIET)$(CONTAINER_ENGINE) rm -f "cilium-etcd-test-container"
 	$(QUIET)$(CONTAINER_ENGINE) rm -f "cilium-consul-test-container"
 	$(QUIET)rm -rf /tmp/cilium-consul-certs
 endif
 
-generate-cov: ## Generate coverage report for Cilium integration-tests.
+generate-cov: ## Generate HTML coverage report at coverage-all.html.
 	# Remove generated code from coverage
 	$(QUIET) grep -Ev '(^github.com/cilium/cilium/api/v1)|(generated.deepcopy.go)|(^github.com/cilium/cilium/pkg/k8s/client/)' \
-		coverage-all-tmp.out > coverage-all.out
-	$(QUIET)$(GO) tool cover -html=coverage-all.out -o=coverage-all.html
-	$(QUIET) rm coverage.out coverage-all-tmp.out
+		coverage.out > coverage.out.tmp
+	$(QUIET)$(GO) tool cover -html=coverage.out.tmp -o=coverage-all.html
+	$(QUIET) rm coverage.out.tmp
 	@rmdir ./daemon/1 ./daemon/1_backup 2> /dev/null || true
 
-init-coverage: ## Initialize converage report for Cilium integration-tests.
-	$(QUIET) echo "mode: count" > coverage-all-tmp.out
-	$(QUIET) echo "mode: count" > coverage.out
-
 integration-tests: GO_TAGS_FLAGS+=integration_tests
-integration-tests: start-kvstores ## Runs all integration-tests for Cilium.
+integration-tests: start-kvstores ## Runs all integration tests.
 	$(QUIET) $(MAKE) $(SUBMAKEOPTS) -C test/bpf/
 ifeq ($(SKIP_VET),"false")
 	$(MAKE) govet
 endif
-	$(MAKE) init-coverage
-	# It seems that in some env if the path is large enough for the full list
-	# of files, the full bash command in that target gets too big for bash and
-	# hence will trigger an error of too many arguments. As a workaround, we
-	# have to process these packages in different subshells.
-	for pkg in $(patsubst %,github.com/cilium/cilium/%,$(TESTPKGS)); do \
-		>&2 $(ECHO_TEST) $$pkg; \
-		$(GO_TEST) $(TEST_UNITTEST_LDFLAGS) $$pkg $(GOTEST_BASE) $(GOTEST_COVER_OPTS) -coverpkg $$pkg \
-		|| exit 1; \
-		tail -n +2 coverage.out >> coverage-all-tmp.out; \
-	done | $(GOTEST_FORMATTER)
+	$(GO_TEST) $(TEST_UNITTEST_LDFLAGS) $(TESTPKGS) $(GOTEST_BASE) $(GOTEST_COVER_OPTS) | $(GOTEST_FORMATTER)
 	$(MAKE) generate-cov
 	$(MAKE) stop-kvstores
 
 bench: start-kvstores ## Run benchmarks for Cilium integration-tests in the repository.
-	# Process the packages in different subshells. See comment in the
-	# "integration-tests" target above for an explanation.## Builds components
-	# required for cilium-agent container.
-	$(QUIET)for pkg in $(patsubst %,github.com/cilium/cilium/%,$(TESTPKGS)); do \
-		$(GO_TEST) $(TEST_UNITTEST_LDFLAGS) $(GOTEST_BASE) $(BENCHFLAGS) \
-			$$pkg \
-		|| exit 1; \
-	done
+	$(GO_TEST) $(TEST_UNITTEST_LDFLAGS) $(GOTEST_BASE) $(BENCHFLAGS) $(TESTPKGS)
 	$(MAKE) stop-kvstores
 
-bench-privileged: GO_TAGS_FLAGS+=privileged_tests ## Run benchmarks for priviliged tests.
-bench-privileged:
-	# Process the packages in different subshells. See comment in the
-	# "integration-tests" target above for an explanation.
-	$(QUIET)for pkg in $(patsubst %,github.com/cilium/cilium/%,$(TESTPKGS)); do \
-		$(GO_TEST) $(TEST_UNITTEST_LDFLAGS) $(GOTEST_BASE) $(BENCHFLAGS) $$pkg \
-		|| exit 1; \
-	done
+bench-privileged: ## Run benchmarks for privileged tests.
+	PRIVILEGED_TESTS=true $(GO_TEST) $(TEST_UNITTEST_LDFLAGS) $(GOTEST_BASE) $(BENCHFLAGS) $(TESTPKGS)
 
 clean-tags: ## Remove all the tags files from the repository.
 	@$(ECHO_CLEAN) tags
 	@-rm -f cscope.out cscope.in.out cscope.po.out cscope.files tags
 
-cscope.files: $(GOLANG_SRCFILES) $(BPF_SRCFILES) ## Generate cscope.files with the list of all files to generate ctags for.
-	@echo $(GOLANG_SRCFILES) $(BPF_SRCFILES) | sed 's/ /\n/g' | sort > cscope.files
+.PHONY: cscope.files
+cscope.files: ## Generate cscope.files with the list of all files to generate ctags for.
+	@# Argument to -f must be double-quoted since shell removes backslashes that appear
+	@# before newlines. Otherwise, backslashes will appear in the output file.
+	@go list -f "{{ \$$p := .ImportPath }} \
+		{{- range .GoFiles }}{{ printf \"%s/%s\n\" \$$p . }}{{ end }} \
+		{{- range .TestGoFiles }}{{ printf \"%s/%s\n\" \$$p . }}{{ end }}" ./... \
+		| sed 's#github.com/cilium/cilium/##g' | sort | uniq > cscope.files
 
-tags: $(GOLANG_SRCFILES) $(BPF_SRCFILES) cscope.files ## Generate tags for Go and BPF source files.
-	@ctags $(GOLANG_SRCFILES) $(BPF_SRCFILES)
+	@echo "$(BPF_SRCFILES)" | sed 's/ /\n/g' | sort >> cscope.files
+
+tags: cscope.files ## Generate tags for Go and BPF source files.
+	@ctags -L cscope.files
 	cscope -R -b -q
 
 clean-container: ## Perform `make clean` for each component required in cilium-agent container.
@@ -287,8 +255,7 @@ build-rpm: ## Build rpm package of cilium.
 CRD_OPTIONS ?= "crd:crdVersions=v1"
 manifests: ## Generate K8s manifests e.g. CRD, RBAC etc.
 	$(eval TMPDIR := $(shell mktemp -d))
-	cd "./vendor/sigs.k8s.io/controller-tools/cmd/controller-gen" && \
-	$(QUIET)$(GO) run ./... $(CRD_OPTIONS) paths="$(PWD)/pkg/k8s/apis/cilium.io/v2;$(PWD)/pkg/k8s/apis/cilium.io/v2alpha1" output:crd:artifacts:config="$(TMPDIR)";
+	$(QUIET)$(GO) run sigs.k8s.io/controller-tools/cmd/controller-gen $(CRD_OPTIONS) paths="$(PWD)/pkg/k8s/apis/cilium.io/v2;$(PWD)/pkg/k8s/apis/cilium.io/v2alpha1" output:crd:artifacts:config="$(TMPDIR)"
 	$(QUIET)$(GO) run ./tools/crdcheck "$(TMPDIR)"
 	mv ${TMPDIR}/cilium.io_ciliumnetworkpolicies.yaml ./pkg/k8s/apis/cilium.io/client/crds/v2/ciliumnetworkpolicies.yaml
 	mv ${TMPDIR}/cilium.io_ciliumclusterwidenetworkpolicies.yaml ./pkg/k8s/apis/cilium.io/client/crds/v2/ciliumclusterwidenetworkpolicies.yaml
@@ -319,9 +286,7 @@ generate-api: api/v1/openapi.yaml ## Generate cilium-agent client, model and ser
 		-f api/v1/openapi.yaml \
 		-r hack/spdx-copyright-header.txt
 	@# sort goimports automatically
-	-$(QUIET) find api/v1/client/ -type f -name "*.go" -print | PATH="$(PWD)/tools:$(PATH)" xargs goimports -w
-	-$(QUIET) find api/v1/models/ -type f -name "*.go" -print | PATH="$(PWD)/tools:$(PATH)" xargs goimports -w
-	-$(QUIET) find api/v1/server/ -type f -name "*.go" -print | PATH="$(PWD)/tools:$(PATH)" xargs goimports -w
+	-$(QUIET)$(GO_CONTAINER) bash -c "go install golang.org/x/tools/cmd/goimports@$(GOIMPORTS_VERSION) && ./contrib/scripts/format-api.sh api/v1/client/ api/v1/models/ api/v1/server/"
 
 generate-health-api: api/v1/health/openapi.yaml ## Generate cilium-health client, model and server code from openapi spec.
 	@$(ECHO_GEN)api/v1/health/openapi.yaml
@@ -338,7 +303,7 @@ generate-health-api: api/v1/health/openapi.yaml ## Generate cilium-health client
 		-f api/v1/health/openapi.yaml \
 		-r hack/spdx-copyright-header.txt
 	@# sort goimports automatically
-	-$(QUIET) find api/v1/health/ -type f -name "*.go" -print | PATH="$(PWD)/tools:$(PATH)" xargs goimports -w
+	-$(QUIET)$(GO_CONTAINER) bash -c "go install golang.org/x/tools/cmd/goimports@$(GOIMPORTS_VERSION) && ./contrib/scripts/format-api.sh api/v1/health/"
 
 generate-operator-api: api/v1/operator/openapi.yaml ## Generate cilium-operator client, model and server code from openapi spec.
 	@$(ECHO_GEN)api/v1/operator/openapi.yaml
@@ -355,12 +320,19 @@ generate-operator-api: api/v1/operator/openapi.yaml ## Generate cilium-operator 
 		-f api/v1/operator/openapi.yaml \
 		-r hack/spdx-copyright-header.txt
 	@# sort goimports automatically
-	-$(QUIET) find api/v1/operator/ -type f -name "*.go" -print | PATH="$(PWD)/tools:$(PATH)" xargs goimports -w
+	-$(QUIET)$(GO_CONTAINER) bash -c "go install golang.org/x/tools/cmd/goimports@$(GOIMPORTS_VERSION) && ./contrib/scripts/format-api.sh api/v1/operator/"
 
 generate-hubble-api: api/v1/flow/flow.proto api/v1/peer/peer.proto api/v1/observer/observer.proto api/v1/relay/relay.proto ## Generate hubble proto Go sources.
 	$(QUIET) $(MAKE) $(SUBMAKEOPTS) -C api/v1
 
 generate-k8s-api: ## Generate Cilium k8s API client, deepcopy and deepequal Go sources.
+	@if [ -z "$(GOPATH)" ] || [ ! -d "$(GOPATH)/src/github.com/cilium/cilium" ] || \
+		[ "$(PWD)" != "$(GOPATH)/src/github.com/cilium/cilium" ]; then \
+		echo "Set \$$GOPATH to a directory containing the Cilium repository at \$$GOPATH/src/github.com/cilium/cilium."; \
+		echo "The current working directory must be the repository root for code generation to work correctly."; \
+		exit 1; \
+	fi
+
 	$(call generate_k8s_protobuf,$\
 	github.com/cilium/cilium/pkg/k8s/slim/k8s/api/core/v1$(comma)$\
 	github.com/cilium/cilium/pkg/k8s/slim/k8s/apis/meta/v1$(comma)$\
@@ -450,41 +422,26 @@ release: ## Perform a Git release for Cilium.
 	git archive --format tar $(BRANCH) | gzip > ../cilium_$(VERSION).orig.tar.gz
 
 gofmt: ## Run gofmt on Go source files in the repository.
-	$(QUIET)for pkg in $(GOFILES); do $(GO) fmt $$pkg; done
+	$(QUIET)$(GO) fmt ./...
 
 govet: ## Run govet on Go source files in the repository.
-	@$(ECHO_CHECK) vetting all GOFILES...
-	$(QUIET) $(GO_VET) \
-    ./api/... \
-    ./bugtool/... \
-    ./cilium/... \
-    ./clustermesh-apiserver/... \
-    ./cilium-health/... \
-    ./daemon/... \
-    ./hubble-relay/... \
-    ./operator/... \
-    ./pkg/... \
-    ./plugins/... \
-    ./proxylib/... \
-    ./test/. \
-    ./test/bpf_tests/... \
-    ./test/config/... \
-    ./test/controlplane/... \
-    ./test/ginkgo-ext/... \
-    ./test/helpers/... \
-    ./test/runtime/... \
-    ./test/k8s/... \
-    ./tools/...
+	@$(ECHO_CHECK) vetting all packages...
+	$(QUIET) $(GO_VET) ./...
 
 golangci-lint: ## Run golangci-lint
 ifneq (,$(findstring $(GOLANGCILINT_WANT_VERSION),$(GOLANGCILINT_VERSION)))
-	@$(ECHO_CHECK) golangci-lint
-	$(QUIET) golangci-lint run
+	@$(ECHO_CHECK) golangci-lint $(GOLANGCI_LINT_ARGS)
+	$(QUIET) golangci-lint run $(GOLANGCI_LINT_ARGS)
 else
-	$(QUIET) $(CONTAINER_ENGINE) run --rm -v `pwd`:/app -w /app docker.io/golangci/golangci-lint:v$(GOLANGCILINT_WANT_VERSION)@$(GOLANGCILINT_IMAGE_SHA) golangci-lint run
+	$(QUIET) $(CONTAINER_ENGINE) run --rm -v `pwd`:/app -w /app docker.io/golangci/golangci-lint:v$(GOLANGCILINT_WANT_VERSION)@$(GOLANGCILINT_IMAGE_SHA) golangci-lint run $(GOLANGCI_LINT_ARGS)
 endif
 
-lint: golangci-lint ## Run golangci-lint and bpf-mock linters.
+golangci-lint-fix: ## Run golangci-lint to automatically fix warnings
+	$(QUIET)$(MAKE) golangci-lint GOLANGCI_LINT_ARGS="--fix"
+
+lint: golangci-lint
+
+lint-fix: golangci-lint-fix
 
 logging-subsys-field: ## Validate logrus subsystem field for logs in Go source code.
 	@$(ECHO_CHECK) contrib/scripts/check-logging-subsys-field.sh
@@ -604,8 +561,8 @@ endif
 	$(QUIET) contrib/scripts/check-fmt.sh
 	@$(ECHO_CHECK) contrib/scripts/check-log-newlines.sh
 	$(QUIET) contrib/scripts/check-log-newlines.sh
-	@$(ECHO_CHECK) contrib/scripts/check-missing-tags-in-tests.sh
-	$(QUIET) contrib/scripts/check-missing-tags-in-tests.sh
+	@$(ECHO_CHECK) contrib/scripts/check-privileged-tests-tags.sh
+	$(QUIET) contrib/scripts/check-privileged-tests-tags.sh
 	@$(ECHO_CHECK) contrib/scripts/check-assert-deep-equals.sh
 	$(QUIET) contrib/scripts/check-assert-deep-equals.sh
 	@$(ECHO_CHECK) contrib/scripts/lock-check.sh
@@ -686,7 +643,6 @@ update-go-version: ## Update Go version for all the components (images, CI, dev-
 	$(QUIET) for fl in $(shell find .  -name main.go -not -path "./vendor/*" -print); do \
 		sed -i \
 			-e 's|^//go:build go.*|//go:build go$(GO_MAJOR_AND_MINOR_VERSION)|g' \
-			-e 's|^// +build go.*|// +build go$(GO_MAJOR_AND_MINOR_VERSION)|g' \
 			$$fl ; \
 	done
 	# Update Go version in Travis CI config.
@@ -697,6 +653,7 @@ update-go-version: ## Update Go version for all the components (images, CI, dev-
 	$(QUIET) sed -i 's/GOLANG_VERSION=.*/GOLANG_VERSION="$(GO_VERSION)"/g' test/packet/scripts/install.sh
 	@echo "Updated go version in test scripts to $(GO_VERSION)"
 	# Update Go version in Dockerfiles.
+	$(QUIET) sed -i 's/GOLANG_VERSION=.*/GOLANG_VERSION=$(GO_VERSION)/g' contrib/backporting/Dockerfile
 	$(QUIET) sed -i 's/^go_version=.*/go_version=$(GO_IMAGE_VERSION)/g' images/scripts/update-golang-image.sh
 	$(QUIET) $(MAKE) -C images update-golang-image
 	@echo "Updated go version in image Dockerfiles to $(GO_IMAGE_VERSION)"

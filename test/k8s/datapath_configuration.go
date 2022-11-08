@@ -171,7 +171,7 @@ var _ = Describe("K8sDatapathConfig", func() {
 		SkipItIf(func() bool {
 			// IPsec + encapsulation requires Linux 4.19.
 			// We also can't disable KPR on GKE at the moment (cf. #16597).
-			return helpers.RunsWithoutKubeProxy() || helpers.DoesNotRunOn419OrLaterKernel() || helpers.RunsOnGKE()
+			return helpers.RunsWithoutKubeProxy() || helpers.DoesNotRunOn419OrLaterKernel() || helpers.RunsOnGKE() || helpers.RunsOnAKS()
 		}, "Check connectivity with transparent encryption and VXLAN encapsulation", func() {
 			deploymentManager.Deploy(helpers.CiliumNamespace, IPSecSecret)
 			options := map[string]string{
@@ -276,6 +276,7 @@ var _ = Describe("K8sDatapathConfig", func() {
 	Context("AutoDirectNodeRoutes", func() {
 		BeforeEach(func() {
 			SkipIfIntegration(helpers.CIIntegrationGKE)
+			SkipIfIntegration(helpers.CIIntegrationAKS)
 		})
 
 		It("Check connectivity with automatic direct nodes routes", func() {
@@ -588,7 +589,7 @@ var _ = Describe("K8sDatapathConfig", func() {
 	})
 
 	SkipContextIf(func() bool {
-		return helpers.RunsOnGKE() || helpers.RunsWithoutKubeProxy()
+		return helpers.RunsOnGKE() || helpers.RunsWithoutKubeProxy() || helpers.RunsOnAKS()
 	}, "Transparent encryption DirectRouting", func() {
 		var privateIface string
 		BeforeAll(func() {
@@ -691,7 +692,7 @@ var _ = Describe("K8sDatapathConfig", func() {
 			Expect(testPodConnectivityAcrossNodes(kubectl)).Should(BeTrue(), "Connectivity test between nodes failed")
 		})
 
-		It("With VXLAN", func() {
+		SkipItIf(helpers.RunsOnAKS, "With VXLAN", func() {
 			options := map[string]string{
 				"hostFirewall.enabled": "true",
 			}
@@ -703,7 +704,9 @@ var _ = Describe("K8sDatapathConfig", func() {
 			testHostFirewall(kubectl)
 		})
 
-		It("With VXLAN and endpoint routes", func() {
+		SkipItIf(func() bool {
+			return helpers.RunsOnAKS()
+		}, "With VXLAN and endpoint routes", func() {
 			options := map[string]string{
 				"hostFirewall.enabled":   "true",
 				"endpointRoutes.enabled": "true",
@@ -867,11 +870,6 @@ func testPodConnectivityAcrossNodes(kubectl *helpers.Kubectl) bool {
 	return result
 }
 
-func testPodConnectivitySameNodes(kubectl *helpers.Kubectl) bool {
-	result, _ := testPodConnectivityAndReturnIP(kubectl, false, 1)
-	return result
-}
-
 func fetchPodsWithOffset(kubectl *helpers.Kubectl, namespace, name, filter, hostIPAntiAffinity string, requireMultiNode bool, callOffset int) (targetPod string, targetPodJSON *helpers.CmdRes) {
 	callOffset++
 
@@ -956,32 +954,6 @@ func testPodConnectivityAndReturnIP(kubectl *helpers.Kubectl, requireMultiNode b
 	res = kubectl.ExecPodCmd(randomNamespace, srcPod,
 		helpers.CurlFail("http://%s:80/", targetIP))
 	return res.WasSuccessful(), targetIP
-}
-
-func testPodHTTPSameNodes(kubectl *helpers.Kubectl, namespace string) bool {
-	result, _ := testPodHTTP(kubectl, namespace, false, 1)
-	return result
-}
-
-func testPodHTTP(kubectl *helpers.Kubectl, namespace string, requireMultiNode bool, callOffset int) (bool, string) {
-	callOffset++
-
-	By("Checking pod http")
-	dstPod, dstPodJSON := fetchPodsWithOffset(kubectl, namespace, "client", "zgroup=http-server", "", requireMultiNode, callOffset)
-	dstHost, err := dstPodJSON.Filter("{.status.hostIP}")
-	ExpectWithOffset(callOffset, err).Should(BeNil(), "Failure to retrieve host of pod %s", dstPod)
-
-	podIP, err := dstPodJSON.Filter("{.status.podIP}")
-	targetIP := podIP.String()
-
-	srcPod, _ := fetchPodsWithOffset(kubectl, namespace, "server", "zgroup=http-client", dstHost.String(), requireMultiNode, callOffset)
-	ExpectWithOffset(callOffset, err).Should(BeNil(), "Failure to retrieve IP of pod %s", srcPod)
-
-	// Netperf benchmark test
-	res := kubectl.ExecPodCmd(namespace, srcPod, helpers.Wrk(targetIP))
-	res.ExpectContains("Requests/sec", "wrk failed")
-	return true, targetIP
-
 }
 
 func testPodHTTPToOutside(kubectl *helpers.Kubectl, outsideURL string, expectNodeIP, expectPodIP, ipv6 bool) bool {

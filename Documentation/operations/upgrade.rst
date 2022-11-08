@@ -312,19 +312,44 @@ Annotations:
 1.13 Upgrade Notes
 ------------------
 
+Removed Options
+~~~~~~~~~~~~~~~
+
+* The ineffective ``disable-conntrack``, ``endpoint-interface-name-prefix`` options deprecated in
+  version 1.12 have been removed.
+
 Added Metrics
 ~~~~~~~~~~~~~
 
 * ``cilium_operator_allocation_duration_seconds``
 * ``cilium_operator_release_duration_seconds``
+* ``httpV2``, an updated version of the existing ``http`` metrics.
+* ``cilium_operator_ipam_interface_candidates``
+* ``cilium_operator_ipam_empty_interface_slots``
+
+Deprecated Metrics
+~~~~~~~~~~~~~~~~~~
+
+* ``http`` is deprecated. Please use ``httpV2`` instead.
+* ``cilium_operator_ipam_available_interfaces`` is deprecated. Please use ``cilium_operator_ipam_interface_candidates`` and ``cilium_operator_ipam_empty_interface_slots`` instead.
 
 Removed Metrics/Labels
 ~~~~~~~~~~~~~~~~~~~~~~
 
-* ``cilium_operator_ipam_available`` is removed. Please use ``cilium_operator_ipam_available_interfaces`` instead.
+* ``cilium_operator_ipam_available`` is removed. Please use ``cilium_operator_ipam_interface_candidates`` and ``cilium_operator_ipam_empty_interface_slots`` instead.
 * ``cilium_operator_ipam_allocation_ops`` is removed. Please use ``cilium_operator_ipam_ip_allocation_ops`` instead.
 * ``cilium_operator_ipam_release_ops`` is removed. Please use ``cilium_operator_ipam_ip_release_ops`` instead.
 * The label of ``status`` in ``cilium_operator_ipam_interface_creation_ops`` is removed.
+
+Helm Options
+~~~~~~~~~~~~
+
+* The way Linux capabilities are configured has been revamped in this release. 
+  All capabilities of every container in the ``cilium-agent`` DaemonSet is
+  configured from Helm's values, defaulting to the old behavior. If you have not
+  been using ``securityContext.extraCapabilities`` you do not need to do anything.
+  If you were leveraging ``securityContext.extraCapabilities``, you need to review
+  ``securityContext.capabilities.cilium_agent``.
 
 .. _1.12_upgrade_notes:
 
@@ -371,6 +396,13 @@ Removed Metrics/Labels
   the feature was automatically enabled for the ``partial`` when
   ``upgradeCompatibility`` was not set or it was set to ``>= 1.8``.
 
+* The ``limit-ipam-api-burst`` and ``limit-ipam-api-qps`` default values have
+  been made more conservative to better reflect the rate limits used by cloud
+  providers. The new default values are ``limit-ipam-api-burst=20`` and
+  ``limit-ipam-api-qps=4``.
+  Use the Helm values ``ipam.operator.externalAPILimit{BurstSize,QPS}`` to
+  reconfigure if needed.
+
 New Options
 ~~~~~~~~~~~
 
@@ -384,6 +416,8 @@ New Options
 * ``nodes-gc-interval``: This option was marked as deprecated and has no effect
   in 1.11. Cilium Node Garbage collector is added back in 1.12 (but for k8s GC instead
   of kvstore), so this flag is moved out of deprecated list.
+* ``enable-pmtu-discovery``: This option enables path MTU discovery to send ICMP
+  fragmentation-needed replies to the client. Use ``pmtuDiscovery`` in Helm chart.
 
 Removed Options
 ~~~~~~~~~~~~~~~

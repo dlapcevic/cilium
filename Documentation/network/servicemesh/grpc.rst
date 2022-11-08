@@ -33,7 +33,9 @@ services in order to make gRPC requests. Download this for the demo app:
 Deploy GRPC Ingress
 *******************
 
-You'll find the example Ingress definition in ``example/kubernetes/servicemesh/grpc-ingress.yaml``.
+You'll find the example Ingress definition in ``examples/kubernetes/servicemesh/grpc-ingress.yaml``.
+
+.. literalinclude:: ../../../examples/kubernetes/servicemesh/grpc-ingress.yaml
 
 .. parsed-literal::
 
@@ -49,8 +51,8 @@ IP address.
 .. code-block:: shell-session
 
     $ kubectl get ingress
-    NAME            CLASS    HOSTS   ADDRESS           PORTS   AGE
-    grpc-ingress    cilium   *       <IP address>      80      3d
+    NAME           CLASS    HOSTS   ADDRESS         PORTS   AGE
+    grpc-ingress   cilium   *       10.111.109.99   80      3s
 
 
 Make gRPC Requests to Backend Services

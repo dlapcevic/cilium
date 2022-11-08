@@ -15,7 +15,6 @@ import (
 
 	"github.com/cilium/cilium/pkg/controller"
 	"github.com/cilium/cilium/pkg/identity"
-	"github.com/cilium/cilium/pkg/ip"
 	"github.com/cilium/cilium/pkg/ipcache/types"
 	"github.com/cilium/cilium/pkg/labels"
 	cidrlabels "github.com/cilium/cilium/pkg/labels/cidr"
@@ -28,6 +27,8 @@ var (
 	// ErrLocalIdentityAllocatorUninitialized is an error that's returned when
 	// the local identity allocator is uninitialized.
 	ErrLocalIdentityAllocatorUninitialized = errors.New("local identity allocator uninitialized")
+
+	LabelInjectorName = "ipcache-inject-labels"
 )
 
 // metadata contains the ipcache metadata. Mainily it holds a map which maps IP
@@ -125,16 +126,12 @@ func (m *metadata) upsertLocked(prefix netip.Prefix, src source.Source, resource
 // map.
 func (ipc *IPCache) GetIDMetadataByIP(addr netip.Addr) labels.Labels {
 	prefix := netip.PrefixFrom(addr, addr.BitLen())
-	if info := ipc.metadata.get(prefix); info != nil {
+	ipc.metadata.RLock()
+	defer ipc.metadata.RUnlock()
+	if info := ipc.metadata.getLocked(prefix); info != nil {
 		return info.ToLabels()
 	}
 	return nil
-}
-
-func (m *metadata) get(prefix netip.Prefix) prefixInfo {
-	m.RLock()
-	defer m.RUnlock()
-	return m.getLocked(prefix)
 }
 
 func (m *metadata) getLocked(prefix netip.Prefix) prefixInfo {
@@ -405,7 +402,7 @@ func (ipc *IPCache) injectLabels(ctx context.Context, prefix netip.Prefix, lbls 
 // injectLabelsForCIDR will allocate a CIDR identity for the given prefix. The
 // release of the identity must be managed by the caller.
 func (ipc *IPCache) injectLabelsForCIDR(ctx context.Context, prefix netip.Prefix, lbls labels.Labels) (*identity.Identity, bool, error) {
-	allLbls := cidrlabels.GetCIDRLabels(ip.PrefixToIPNet(prefix))
+	allLbls := cidrlabels.GetCIDRLabels(prefix)
 	allLbls.MergeLabels(lbls)
 
 	log.WithFields(logrus.Fields{
@@ -515,8 +512,9 @@ func (ipc *IPCache) TriggerLabelInjection() {
 	// This controller is for retrying this operation in case it fails. It
 	// should eventually succeed.
 	ipc.UpdateController(
-		"ipcache-inject-labels",
+		LabelInjectorName,
 		controller.ControllerParams{
+			Context: ipc.Configuration.Context,
 			DoFunc: func(ctx context.Context) error {
 				var err error
 
@@ -528,4 +526,9 @@ func (ipc *IPCache) TriggerLabelInjection() {
 			},
 		},
 	)
+}
+
+// ShutdownLabelInjection shuts down the controller in TriggerLabelInjection().
+func (ipc *IPCache) ShutdownLabelInjection() error {
+	return ipc.controllers.RemoveControllerAndWait(LabelInjectorName)
 }

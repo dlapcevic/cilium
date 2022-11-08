@@ -19,7 +19,7 @@ import (
 // Documentation/gettingstarted/istio.rst.
 // The 5.4 CI job is intended to catch BPF complexity regressions and as such
 // doesn't need to execute this test suite.
-var _ = SkipDescribeIf(helpers.RunsOn54Kernel, "K8sIstioTest", func() {
+var _ = SkipDescribeIf(helpers.RunsOn54Kernel, "K8sAgentIstioTest", func() {
 
 	var (
 		// istioSystemNamespace is the default namespace into which Istio is
@@ -296,7 +296,7 @@ var _ = SkipDescribeIf(helpers.RunsOn54Kernel, "K8sIstioTest", func() {
 			return true
 		}
 
-		It("Tests bookinfo inter-service connectivity", func() {
+		SkipItIf(helpers.RunsOnAKS, "Tests bookinfo inter-service connectivity", func() {
 			var err error
 			version := "version"
 			v1 := "v1"

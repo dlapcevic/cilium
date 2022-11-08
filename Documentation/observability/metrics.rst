@@ -149,6 +149,25 @@ have it scrape all Hubble metrics from the endpoints automatically:
             regex: (.+)(?::\d+);(\d+)
             replacement: $1:$2
 
+OpenMetrics
+-----------
+
+Additionally, you can opt-in to `OpenMetrics <https://openmetrics.io>`_ by
+setting ``hubble.metrics.enableOpenMetrics=true``.
+Enabling OpenMetrics configures the Hubble metrics endpoint to support exporting
+metrics in OpenMetrics format when explicitly requested by clients.
+
+Using OpenMetrics supports additional functionality such as Exemplars, which
+enables associating metrics with traces by embedding trace IDs into the
+exported metrics.
+
+Prometheus needs to be configured to take advantage of OpenMetrics. and will
+only use OpenMetrics format when the `exemplars storage feature is enabled
+<https://prometheus.io/docs/prometheus/latest/feature_flags/#exemplars-storage>`_.
+
+OpenMetrics imposes a few additional requirements on metrics names and labels,
+so this functionality is currently opt-in, though we believe all of the Hubble
+metrics conform to the OpenMetrics requirements.
 
 Example Prometheus & Grafana Deployment
 =======================================
@@ -503,6 +522,9 @@ Currently there are 3 supported context options for all metrics:
 - ``destinationContext`` - Configures the ``destination`` label on metrics.
 - ``labelsContext`` - Configures a list of labels to be enabled on metrics.
 
+There are also some context options that are specific to certain metrics.
+See the documentation for the individual metrics to see what options are available for each.
+
 See below for details on each of the different context options.
 
 Most Hubble metrics can be configured to add the source and/or destination
@@ -519,6 +541,8 @@ Option Value          Description
 ``dns``               All known DNS names of the source or destination (comma-separated)
 ``ip``                The IPv4 or IPv6 address
 ``reserved-identity`` Reserved identity label.
+``workload-name``     Kubernetes pod's workload name (workloads are: Deployment, Statefulset, Daemonset, ReplicationController, CronJob, Job, DeploymentConfig (OpenShift), etc).
+``app``               Kubernetes pod's app name, derived from pod labels (``app.kubernetes.io/name``, ``k8s-app``, or ``app``).
 ===================== ===================================================================================
 
 When specifying the source and/or destination context, multiple contexts can be
@@ -546,10 +570,12 @@ of different values being put into the same metric label, the ``labelsContext`` 
 ========================= ===============================================================================
 Option Value              Description
 ========================= ===============================================================================
+``source_ip``             The source IP of the flow.
 ``source_namespace``      The namespace of the pod if the flow source is from a Kubernetes pod.
 ``source_pod``            The pod name if the flow source is from a Kubernetes pod.
 ``source_workload``       The name of the source pod's workload (Deployment, Statefulset, Daemonset, ReplicationController, CronJob, Job, DeploymentConfig (OpenShift)).
 ``source_app``            The app name of the source pod, derived from pod labels (``app.kubernetes.io/name``, ``k8s-app``, or ``app``).
+``destination_ip``        The destination IP of the flow.
 ``destination_namespace`` The namespace of the pod if the flow destination is from a Kubernetes pod.
 ``destination_pod``       The pod name if the flow destination is from a Kubernetes pod.
 ``destination_workload``  The name of the destination pod's workload (Deployment, Statefulset, Daemonset, ReplicationController, CronJob, Job, DeploymentConfig (OpenShift)).
@@ -642,6 +668,7 @@ Option Key     Option Value  Description
 ============== ============= ======================================================
 ``any-drop``   N/A           Count any dropped flows regardless of the drop reason.
 ``port``       N/A           Include the destination port as label ``port``.
+``syn-only``   N/A           Only count non-reply SYNs for TCP flows.
 ============== ============= ======================================================
 
 
@@ -650,12 +677,15 @@ This metric supports :ref:`Context Options<hubble_context_options>`.
 ``http``
 ~~~~~~~~
 
+Deprecated, use ``httpV2`` instead.
+These metrics can not be enabled at the same time as ``httpV2``.
+
 ================================= ======================================= ========== ==============================================
-Name                              Labels                                  Default     Description
+Name                              Labels                                  Default    Description
 ================================= ======================================= ========== ==============================================
 ``http_requests_total``           ``method``, ``protocol``, ``reporter``  Disabled   Count of HTTP requests
 ``http_responses_total``          ``method``, ``status``, ``reporter``    Disabled   Count of HTTP responses
-``http_request_duration_seconds`` ``method``, ``reporter``                Disabled   Quantiles of HTTP request duration in seconds
+``http_request_duration_seconds`` ``method``, ``reporter``                Disabled   Histogram of HTTP request duration in seconds
 ================================= ======================================= ========== ==============================================
 
 Labels
@@ -664,7 +694,43 @@ Labels
 - ``method`` is the HTTP method of the request/response.
 - ``protocol`` is the HTTP protocol of the request, (For example: ``HTTP/1.1``, ``HTTP/2``).
 - ``status`` is the HTTP status code of the response.
-- ``reporter`` identifies the origin of the request/response. It is set to ``client`` if it originated from the client, ``server`` if it originated from the server, or ``unknown`` if it's origin isn't known.
+- ``reporter`` identifies the origin of the request/response. It is set to ``client`` if it originated from the client, ``server`` if it originated from the server, or ``unknown`` if its origin is unknown.
+
+Options
+"""""""
+
+This metric supports :ref:`Context Options<hubble_context_options>`.
+
+``httpV2``
+~~~~~~~~~~
+
+``httpV2`` is an updated version of the existing ``http`` metrics.
+These metrics can not be enabled at the same time as ``http``.
+
+The main difference is that ``http_requests_total`` and
+``http_responses_total`` have been consolidated, and use the response flow
+data.
+
+Additionally, the ``http_request_duration_seconds`` metric source/destination
+related labels now are from the perspective of the request. In the ``http``
+metrics, the source/destination were swapped, because the metric uses the
+response flow data, where the source/destination are swapped, but in ``httpV2``
+we correctly account for this.
+
+================================= =================================================== ========== ==============================================
+Name                              Labels                                              Default    Description
+================================= =================================================== ========== ==============================================
+``http_requests_total``           ``method``, ``protocol``, ``status``, ``reporter``  Disabled   Count of HTTP requests
+``http_request_duration_seconds`` ``method``, ``reporter``                            Disabled   Histogram of HTTP request duration in seconds
+================================= =================================================== ========== ==============================================
+
+Labels
+""""""
+
+- ``method`` is the HTTP method of the request/response.
+- ``protocol`` is the HTTP protocol of the request, (For example: ``HTTP/1.1``, ``HTTP/2``).
+- ``status`` is the HTTP status code of the response.
+- ``reporter`` identifies the origin of the request/response. It is set to ``client`` if it originated from the client, ``server`` if it originated from the server, or ``unknown`` if its origin is unknown.
 
 Options
 """""""
@@ -679,6 +745,21 @@ Name                             Labels                                   Defaul
 ================================ ======================================== ========== ===================================
 ``icmp_total``                   ``family``, ``type``                     Disabled   Number of ICMP messages
 ================================ ======================================== ========== ===================================
+
+Options
+"""""""
+
+This metric supports :ref:`Context Options<hubble_context_options>`.
+
+``kafka``
+~~~~~~~~~
+
+=================================== ===================================================== ========== ==============================================
+Name                                Labels                                                Default    Description
+=================================== ===================================================== ========== ==============================================
+``kafka_requests_total``            ``topic``, ``api_key``, ``error_code``, ``reporter``  Disabled   Count of Kafka requests by topic
+``kafka_request_duration_seconds``  ``topic``, ``api_key``, ``reporter``                  Disabled   Histogram of Kafka request duration by topic
+=================================== ===================================================== ========== ==============================================
 
 Options
 """""""

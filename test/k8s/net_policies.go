@@ -29,8 +29,8 @@ var _ = SkipDescribeIf(func() bool {
 	// code coverage.
 	//
 	// For GKE coverage, see the K8sPolicyTestExtended Describe block below.
-	return helpers.RunsOnGKE() || helpers.RunsOn419Kernel() || helpers.RunsOn54Kernel()
-}, "K8sPolicyTest", func() {
+	return helpers.RunsOnGKE() || helpers.RunsOn419Kernel() || helpers.RunsOn54Kernel() || helpers.RunsOnAKS()
+}, "K8sAgentPolicyTest", func() {
 
 	var (
 		kubectl *helpers.Kubectl
@@ -498,7 +498,7 @@ var _ = SkipDescribeIf(func() bool {
 				// K8s Services, for the sake of simplicity. Making the backend
 				// pod IP directly routable on the "outside" node is sufficient
 				// to validate the policy under test.
-				res := kubectl.AddIPRoute(outsideNodeName, backendPodIP, hostIPOfBackendPod, true)
+				res := kubectl.AddIPRoute(outsideNodeName, backendPodIP, hostIPOfBackendPod, false)
 				Expect(res).To(getMatcher(true))
 
 				policyVerdictAllowRegex = regexp.MustCompile(
@@ -794,9 +794,12 @@ var _ = SkipDescribeIf(func() bool {
 						defer GinkgoRecover()
 						defer wg.Done()
 						By("Checking ingress connectivity from world to k8s1 pod")
-						By("Adding a static route to %s on the %s node (outside)", k8s1PodIP, outsideNodeName)
-						res := kubectl.AddIPRoute(outsideNodeName, k8s1PodIP, k8s1IP, true)
+						By("Adding a static route to %s via %s on the %s node (outside)", k8s1PodIP, k8s1IP, outsideNodeName)
+						res := kubectl.AddIPRoute(outsideNodeName, k8s1PodIP, k8s1IP, false)
 						Expect(res).To(getMatcher(true))
+						defer func() {
+							kubectl.DelIPRoute(outsideNodeName, k8s1PodIP, k8s1IP).ExpectSuccess("Failed to del ip route")
+						}()
 
 						if expectWorldSuccess {
 							testCurlFromOutside(kubectl, &helpers.NodesInfo{
@@ -1640,9 +1643,12 @@ var _ = SkipDescribeIf(helpers.DoesNotRunOn419OrLaterKernel,
 						defer GinkgoRecover()
 						defer wg.Done()
 						By("Checking ingress connectivity from world to k8s1 pod")
-						By("Adding a static route to %s on the %s node (outside)", k8s1PodIP, outsideNodeName)
-						res := kubectl.AddIPRoute(outsideNodeName, k8s1PodIP, k8s1IP, true)
+						By("Adding a static route to %s via %s on the %s node (outside)", k8s1PodIP, k8s1IP, outsideNodeName)
+						res := kubectl.AddIPRoute(outsideNodeName, k8s1PodIP, k8s1IP, false)
 						Expect(res).To(getMatcher(true))
+						defer func() {
+							kubectl.DelIPRoute(outsideNodeName, k8s1PodIP, k8s1IP).ExpectSuccess("Failed to del ip route")
+						}()
 
 						if expectWorldSuccess {
 							testCurlFromOutside(kubectl, &helpers.NodesInfo{

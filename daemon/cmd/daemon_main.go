@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"path"
 	"path/filepath"
@@ -20,7 +21,6 @@ import (
 	"github.com/go-openapi/loads"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
-	"go.uber.org/fx"
 	"google.golang.org/grpc"
 
 	"github.com/cilium/cilium/api/v1/server"
@@ -45,12 +45,16 @@ import (
 	"github.com/cilium/cilium/pkg/endpoint"
 	"github.com/cilium/cilium/pkg/envoy"
 	"github.com/cilium/cilium/pkg/flowdebug"
+	"github.com/cilium/cilium/pkg/hive"
+	"github.com/cilium/cilium/pkg/hive/cell"
 	"github.com/cilium/cilium/pkg/hubble/exporter/exporteroption"
 	"github.com/cilium/cilium/pkg/hubble/observer/observeroption"
 	"github.com/cilium/cilium/pkg/identity"
+	"github.com/cilium/cilium/pkg/ip"
 	ipamOption "github.com/cilium/cilium/pkg/ipam/option"
 	"github.com/cilium/cilium/pkg/ipmasq"
 	"github.com/cilium/cilium/pkg/k8s"
+	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
 	"github.com/cilium/cilium/pkg/k8s/watchers/resources"
 	"github.com/cilium/cilium/pkg/kvstore"
 	"github.com/cilium/cilium/pkg/labels"
@@ -96,7 +100,7 @@ const (
 )
 
 var (
-	Vp *viper.Viper = viper.New()
+	Vp *viper.Viper
 
 	log = logging.DefaultLogger.WithField(logfields.LogSubsys, daemonSubsys)
 
@@ -212,10 +216,6 @@ func initializeFlags() {
 	flags.String(option.DatapathMode, defaults.DatapathMode, "Datapath mode name")
 	option.BindEnv(Vp, option.DatapathMode)
 
-	flags.Bool(option.DisableConntrack, false, "Disable connection tracking")
-	option.BindEnv(Vp, option.DisableConntrack)
-	flags.MarkDeprecated(option.DisableConntrack, "This option is no-op and it will be removed in v1.13")
-
 	flags.Bool(option.EnableEndpointRoutes, defaults.EnableEndpointRoutes, "Use per endpoint routes instead of routing via cilium_host")
 	option.BindEnv(Vp, option.EnableEndpointRoutes)
 
@@ -241,6 +241,9 @@ func initializeFlags() {
 	flags.Bool(option.EnableIPv6Name, defaults.EnableIPv6, "Enable IPv6 support")
 	option.BindEnv(Vp, option.EnableIPv6Name)
 
+	flags.Bool(option.EnableStatelessNat46X64, false, "Enable stateless NAT46 and NAT64 support")
+	option.BindEnv(Vp, option.EnableStatelessNat46X64)
+
 	flags.Bool(option.EnableIPv6NDPName, defaults.EnableIPv6NDP, "Enable IPv6 NDP support")
 	option.BindEnv(Vp, option.EnableIPv6NDPName)
 
@@ -265,6 +268,7 @@ func initializeFlags() {
 	option.BindEnv(Vp, option.EncryptInterface)
 
 	flags.Bool(option.EncryptNode, defaults.EncryptNode, "Enables encrypting traffic from non-Cilium pods and host networking")
+	flags.MarkHidden(option.EncryptNode)
 	option.BindEnv(Vp, option.EncryptNode)
 
 	flags.StringSlice(option.IPv4PodSubnets, []string{}, "List of IPv4 pod subnets to preconfigure for encryption")
@@ -272,10 +276,6 @@ func initializeFlags() {
 
 	flags.StringSlice(option.IPv6PodSubnets, []string{}, "List of IPv6 pod subnets to preconfigure for encryption")
 	option.BindEnv(Vp, option.IPv6PodSubnets)
-
-	flags.String(option.EndpointInterfaceNamePrefix, "", "Prefix of interface name shared by all endpoints")
-	option.BindEnv(Vp, option.EndpointInterfaceNamePrefix)
-	flags.MarkDeprecated(option.EndpointInterfaceNamePrefix, "This option no longer has any effect and will be removed in v1.13.")
 
 	flags.StringSlice(option.ExcludeLocalAddress, []string{}, "Exclude CIDR from being recognized as local address")
 	option.BindEnv(Vp, option.ExcludeLocalAddress)
@@ -291,6 +291,9 @@ func initializeFlags() {
 
 	flags.Bool(option.EnableSocketLB, false, "Enable socket-based LB for E/W traffic")
 	option.BindEnv(Vp, option.EnableSocketLB)
+
+	flags.Bool(option.EnableSocketLBTracing, true, "Enable tracing for socket-based LB")
+	option.BindEnv(Vp, option.EnableSocketLBTracing)
 
 	flags.Bool(option.EnableHostReachableServices, false, "Enable reachability of services for host applications")
 	option.BindEnv(Vp, option.EnableHostReachableServices)
@@ -321,9 +324,6 @@ func initializeFlags() {
 
 	flags.Bool(option.K8sEnableEndpointSlice, defaults.K8sEnableEndpointSlice, "Enables k8s EndpointSlice feature in Cilium if the k8s cluster supports it")
 	option.BindEnv(Vp, option.K8sEnableEndpointSlice)
-
-	flags.Bool(option.K8sEnableAPIDiscovery, defaults.K8sEnableAPIDiscovery, "Enable discovery of Kubernetes API groups and resources with the discovery API")
-	option.BindEnv(Vp, option.K8sEnableAPIDiscovery)
 
 	flags.Bool(option.EnableL7Proxy, defaults.EnableL7Proxy, "Enable L7 proxy for L7 policy enforcement")
 	option.BindEnv(Vp, option.EnableL7Proxy)
@@ -433,12 +433,6 @@ func initializeFlags() {
 
 	flags.Bool(option.K8sEventHandover, defaults.K8sEventHandover, "Enable k8s event handover to kvstore for improved scalability")
 	option.BindEnv(Vp, option.K8sEventHandover)
-
-	flags.String(option.K8sAPIServer, "", "Kubernetes API server URL")
-	option.BindEnv(Vp, option.K8sAPIServer)
-
-	flags.String(option.K8sKubeConfigPath, "", "Absolute path of the kubernetes kubeconfig file")
-	option.BindEnv(Vp, option.K8sKubeConfigPath)
 
 	flags.String(option.K8sNamespaceName, "", "Name of the Kubernetes namespace in which Cilium is deployed in")
 	option.BindEnv(Vp, option.K8sNamespaceName)
@@ -718,7 +712,7 @@ func initializeFlags() {
 	flags.String(option.IPv4NodeAddr, "auto", "IPv4 address of node")
 	option.BindEnv(Vp, option.IPv4NodeAddr)
 
-	flags.String(option.ReadCNIConfiguration, "", "Read to the CNI configuration at specified path to extract per node configuration")
+	flags.String(option.ReadCNIConfiguration, "", fmt.Sprintf("CNI configuration file to use as a source for --%s. If not supplied, a suitable one will be generated.", option.WriteCNIConfigurationWhenReady))
 	option.BindEnv(Vp, option.ReadCNIConfiguration)
 
 	flags.Bool(option.Restore, true, "Restores state, if possible, from previous daemon")
@@ -753,7 +747,7 @@ func initializeFlags() {
 	flags.Bool(option.PProf, false, "Enable serving the pprof debugging API")
 	option.BindEnv(Vp, option.PProf)
 
-	flags.Int(option.PProfPort, 6060, "Port that the pprof listens on")
+	flags.Int(option.PProfPort, defaults.PprofPortAgent, "Port that the pprof listens on")
 	option.BindEnv(Vp, option.PProfPort)
 
 	flags.Bool(option.EnableXDPPrefilter, false, "Enable XDP prefiltering")
@@ -878,11 +872,7 @@ func initializeFlags() {
 	flags.MarkHidden(option.EndpointGCInterval)
 	option.BindEnv(Vp, option.EndpointGCInterval)
 
-	flags.Bool(option.SelectiveRegeneration, true, "only regenerate endpoints which need to be regenerated upon policy changes")
-	flags.MarkHidden(option.SelectiveRegeneration)
-	option.BindEnv(Vp, option.SelectiveRegeneration)
-
-	flags.String(option.WriteCNIConfigurationWhenReady, "", fmt.Sprintf("Write the CNI configuration as specified via --%s to path when agent is ready", option.ReadCNIConfiguration))
+	flags.String(option.WriteCNIConfigurationWhenReady, "", "Write the CNI configuration to the specified path when agent is ready")
 	option.BindEnv(Vp, option.WriteCNIConfigurationWhenReady)
 
 	flags.Duration(option.PolicyTriggerInterval, defaults.PolicyTriggerInterval, "Time between triggers of policy updates (regenerations for all endpoints)")
@@ -903,6 +893,9 @@ func initializeFlags() {
 
 	flags.String(option.HubbleListenAddress, "", `An additional address for Hubble server to listen to, e.g. ":4244"`)
 	option.BindEnv(Vp, option.HubbleListenAddress)
+
+	flags.Bool(option.HubblePreferIpv6, false, "Prefer IPv6 addresses for announcing nodes when both address types are available.")
+	option.BindEnv(Vp, option.HubblePreferIpv6)
 
 	flags.Bool(option.HubbleTLSDisabled, false, "Allow Hubble server to run on the given listen address without TLS.")
 	option.BindEnv(Vp, option.HubbleTLSDisabled)
@@ -951,9 +944,6 @@ func initializeFlags() {
 
 	flags.StringSlice(option.DisableIptablesFeederRules, []string{}, "Chains to ignore when installing feeder rules.")
 	option.BindEnv(Vp, option.DisableIptablesFeederRules)
-
-	flags.Duration(option.K8sHeartbeatTimeout, 30*time.Second, "Configures the timeout for api-server heartbeat, set to 0 to disable")
-	option.BindEnv(Vp, option.K8sHeartbeatTimeout)
 
 	flags.Bool(option.EnableIPv4FragmentsTrackingName, defaults.EnableIPv4FragmentsTracking, "Enable IPv4 fragments tracking for L4-based lookups")
 	option.BindEnv(Vp, option.EnableIPv4FragmentsTrackingName)
@@ -1066,7 +1056,12 @@ func initializeFlags() {
 	flags.Bool(option.EnableBGPControlPlane, false, "Enable the BGP control plane.")
 	option.BindEnv(Vp, option.EnableBGPControlPlane)
 
-	Vp.BindPFlags(flags)
+	flags.Bool(option.EnablePMTUDiscovery, false, "Enable path MTU discovery to send ICMP fragmentation-needed replies to the client")
+	option.BindEnv(Vp, option.EnablePMTUDiscovery)
+
+	if err := Vp.BindPFlags(flags); err != nil {
+		log.Fatalf("BindPFlags failed: %s", err)
+	}
 }
 
 // restoreExecPermissions restores file permissions to 0740 of all files inside
@@ -1093,7 +1088,7 @@ func restoreExecPermissions(searchDir string, patterns ...string) error {
 	return err
 }
 
-func initEnv() {
+func initEnv(clientset k8sClient.Clientset) {
 	var debugDatapath bool
 
 	option.Config.SetMapElementSizes(
@@ -1118,12 +1113,6 @@ func initEnv() {
 	option.LogRegisteredOptions(Vp, log)
 
 	sysctl.SetProcfs(option.Config.ProcFs)
-
-	// Configure k8s as soon as possible so that k8s.IsEnabled() has the right
-	// behavior.
-	bootstrapStats.k8sInit.Start()
-	k8s.Configure(option.Config.K8sAPIServer, option.Config.K8sKubeConfigPath, defaults.K8sClientQPSLimit, defaults.K8sClientBurst)
-	bootstrapStats.k8sInit.End(true)
 
 	for _, grp := range option.Config.DebugVerbose {
 		switch grp {
@@ -1180,7 +1169,7 @@ func initEnv() {
 
 	// This check is here instead of in DaemonConfig.Populate (invoked at the
 	// start of this function as option.Config.Populate) to avoid an import loop.
-	if option.Config.IdentityAllocationMode == option.IdentityAllocationModeCRD && !k8s.IsEnabled() &&
+	if option.Config.IdentityAllocationMode == option.IdentityAllocationModeCRD && !clientset.IsEnabled() &&
 		option.Config.DatapathMode != datapathOption.DatapathModeLBOnly {
 		log.Fatal("CRD Identity allocation mode requires k8s to be configured.")
 	}
@@ -1305,10 +1294,13 @@ func initEnv() {
 		}
 	case datapathOption.DatapathModeLBOnly:
 		log.Info("Running in LB-only mode")
-		option.Config.LoadBalancerPMTUDiscovery =
-			option.Config.NodePortAcceleration != option.NodePortAccelerationDisabled
+		if option.Config.NodePortAcceleration != option.NodePortAccelerationDisabled {
+			option.Config.EnablePMTUDiscovery = true
+		}
 		option.Config.KubeProxyReplacement = option.KubeProxyReplacementPartial
 		option.Config.EnableSocketLB = true
+		// Socket-LB tracing relies on metadata that's retrieved from Kubernetes.
+		option.Config.EnableSocketLBTracing = false
 		option.Config.EnableHostPort = false
 		option.Config.EnableNodePort = true
 		option.Config.EnableExternalIPs = true
@@ -1529,7 +1521,7 @@ func (d *Daemon) initKVStore() {
 	// looking at services from k8s and retrieve the service IP from that.
 	// This makes cilium to not depend on kube dns to interact with etcd
 	_, isETCDOperator := kvstore.IsEtcdOperator(option.Config.KVStore, option.Config.KVStoreOpt, option.Config.K8sNamespace)
-	if k8s.IsEnabled() && isETCDOperator {
+	if d.clientset.IsEnabled() && isETCDOperator {
 		// Wait services and endpoints cache are synced with k8s before setting
 		// up etcd so we can perform the name resolution for etcd-operator
 		// to the service IP as well perform the service -> backend IPs for
@@ -1557,6 +1549,16 @@ func (d *Daemon) initKVStore() {
 	}
 }
 
+type daemonParams struct {
+	cell.In
+
+	Lifecycle      hive.Lifecycle
+	Shutdowner     hive.Shutdowner
+	Config         DaemonCellConfig
+	LocalNodeStore node.LocalNodeStore
+	Clientset      k8sClient.Clientset
+}
+
 // registerDaemonHooks registers the lifecycle hooks for the part of the cilium-agent that has
 // not yet been modularized.
 //
@@ -1567,22 +1569,40 @@ func (d *Daemon) initKVStore() {
 //
 // If an object still owned by Daemon is required in a module, it should be provided indirectly, e.g. via
 // a callback.
-func registerDaemonHooks(lc fx.Lifecycle, shutdowner fx.Shutdowner) error {
-	ctx, cancel := context.WithCancel(context.Background())
+func registerDaemonHooks(params daemonParams) error {
+	if params.Config.SkipDaemon {
+		return nil
+	}
+
+	// daemonCtx is the daemon-wide context cancelled when stopping.
+	daemonCtx, cancelDaemonCtx := context.WithCancel(context.Background())
 	cleaner := NewDaemonCleanup()
-	lc.Append(fx.Hook{
-		OnStart: func(context.Context) error {
+
+	if Vp.GetString(option.DatapathMode) == datapathOption.DatapathModeLBOnly {
+		// In lb-only mode the k8s client is not used, even if its configuration
+		// is available, so disable it here before it starts. Using GetString
+		// directly as option.Config not populated yet.
+		params.Clientset.Disable()
+	}
+
+	// Set the global LocalNodeStore. This is to retain the API of getters and setters
+	// defined in pkg/node/address.go until uses of them have been converted to use
+	// LocalNodeStore directly.
+	node.SetLocalNodeStore(params.LocalNodeStore)
+
+	params.Lifecycle.Append(hive.Hook{
+		OnStart: func(hive.HookContext) error {
 			bootstrapStats.earlyInit.Start()
-			initEnv()
+			initEnv(params.Clientset)
 			bootstrapStats.earlyInit.End(true)
 
 			// Start running the daemon in the background (blocks on API server's Serve()) to allow rest
 			// of the start hooks to run.
-			go runDaemon(ctx, cleaner, shutdowner)
+			go runDaemon(daemonCtx, cleaner, params.Shutdowner, params.Clientset)
 			return nil
 		},
-		OnStop: func(context.Context) error {
-			cancel()
+		OnStop: func(hive.HookContext) error {
+			cancelDaemonCtx()
 			cleaner.Clean()
 			return nil
 		},
@@ -1591,7 +1611,7 @@ func registerDaemonHooks(lc fx.Lifecycle, shutdowner fx.Shutdowner) error {
 }
 
 // runDaemon runs the old unmodular part of the cilium-agent.
-func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shutdowner) {
+func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner hive.Shutdowner, clientset k8sClient.Clientset) {
 	datapathConfig := linuxdatapath.DatapathConfiguration{
 		HostDevice: defaults.HostDevice,
 		ProcFs:     option.Config.ProcFs,
@@ -1634,17 +1654,10 @@ func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shutdo
 		link.DeleteByName(wireguardTypes.IfaceName)
 	}
 
-	if k8s.IsEnabled() {
-		bootstrapStats.k8sInit.Start()
-		if err := k8s.Init(option.Config); err != nil {
-			log.Fatalf("unable to initialize Kubernetes subsystem: %s", err)
-		}
-		bootstrapStats.k8sInit.End(true)
-	}
-
 	d, restoredEndpoints, err := NewDaemon(ctx, cleaner,
-		WithDefaultEndpointManager(ctx, endpoint.CheckHealth),
-		linuxdatapath.NewDatapath(datapathConfig, iptablesManager, wgAgent))
+		WithDefaultEndpointManager(ctx, clientset, endpoint.CheckHealth),
+		linuxdatapath.NewDatapath(datapathConfig, iptablesManager, wgAgent),
+		clientset)
 	if err != nil {
 		log.Fatalf("daemon creation failed: %s", err)
 	}
@@ -1664,7 +1677,7 @@ func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shutdo
 	bootstrapStats.enableConntrack.End(true)
 
 	bootstrapStats.k8sInit.Start()
-	if k8s.IsEnabled() {
+	if clientset.IsEnabled() {
 		// Wait only for certain caches, but not all!
 		// (Check Daemon.InitK8sSubsystem() for more info)
 		<-d.k8sCachesSynced
@@ -1722,7 +1735,11 @@ func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shutdo
 				time.Sleep(option.Config.IdentityRestoreGracePeriod)
 				log.Debugf("Releasing reference counts for %d restored CIDR identities", len(d.restoredCIDRs))
 
-				d.ipcache.ReleaseCIDRIdentitiesByCIDR(d.restoredCIDRs)
+				prefixes := make([]netip.Prefix, 0, len(d.restoredCIDRs))
+				for _, c := range d.restoredCIDRs {
+					prefixes = append(prefixes, ip.IPNetToPrefix(c))
+				}
+				d.ipcache.ReleaseCIDRIdentitiesByCIDR(prefixes)
 				// release the memory held by restored CIDRs
 				d.restoredCIDRs = nil
 			}
@@ -1739,7 +1756,7 @@ func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shutdo
 	// logic runs before any endpoint creates.
 	if option.Config.IPAM == ipamOption.IPAMENI {
 		migrated, failed := linuxrouting.NewMigrator(
-			&eni.InterfaceDB{},
+			&eni.InterfaceDB{Clientset: clientset},
 		).MigrateENIDatapath(option.Config.EgressMultiHomeIPRuleCompat)
 		switch {
 		case failed == -1:
@@ -1769,7 +1786,7 @@ func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shutdo
 		err := <-errs
 		if err != nil {
 			log.WithError(err).Error("Cannot start metrics server")
-			shutdowner.Shutdown()
+			shutdowner.Shutdown(hive.ShutdownWithError(err))
 		}
 	}(initMetrics())
 
@@ -1826,20 +1843,7 @@ func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shutdo
 	log.WithField("bootstrapTime", time.Since(bootstrapTimestamp)).
 		Info("Daemon initialization completed")
 
-	if option.Config.WriteCNIConfigurationWhenReady != "" {
-		input, err := os.ReadFile(option.Config.ReadCNIConfiguration)
-		if err != nil {
-			log.Fatalf("unable to read cni configuration file: %s", err)
-		}
-
-		if err = os.WriteFile(option.Config.WriteCNIConfigurationWhenReady, input, 0644); err != nil {
-			log.Fatalf("unable to write CNI configuration file to %s: %s",
-				option.Config.WriteCNIConfigurationWhenReady,
-				err)
-		} else {
-			log.Infof("Wrote CNI configuration file to %s", option.Config.WriteCNIConfigurationWhenReady)
-		}
-	}
+	d.startCNIConfWriter(option.Config, cleaner)
 
 	bootstrapStats.overall.End(true)
 	bootstrapStats.updateMetrics()
@@ -1858,7 +1862,7 @@ func runDaemon(ctx context.Context, cleaner *daemonCleanup, shutdowner fx.Shutdo
 	err = srv.Serve()
 	if err != nil {
 		log.WithError(err).Error("Error returned from non-returning Serve() call")
-		shutdowner.Shutdown()
+		shutdowner.Shutdown(hive.ShutdownWithError(err))
 	}
 }
 
@@ -1866,7 +1870,7 @@ func (d *Daemon) instantiateBGPControlPlane(ctx context.Context) error {
 	// goBGP is currently the only supported RouterManager, if more are
 	// implemented replace this hard-coding with a construction switch.
 	rm := gobgp.NewBGPRouterManager()
-	ctrl, err := bgpv1.NewController(d.ctx, rm)
+	ctrl, err := bgpv1.NewController(d.ctx, d.clientset, rm)
 	if err != nil {
 		return fmt.Errorf("failed to instantiate BGP Control Plane: %v", err)
 	}
@@ -2011,13 +2015,12 @@ func initClockSourceOption() {
 	option.Config.ClockSource = option.ClockSourceKtime
 	option.Config.KernelHz = 1 // Known invalid non-zero to avoid div by zero.
 	if !option.Config.DryMode {
-		hz, err := probes.NewProbeManager().SystemKernelHz()
+		hz, err := probes.KernelHZ()
 		if err != nil {
-			log.WithError(err).Infof("Auto-disabling %q feature since KERNEL_HZ cannot be determined",
-				option.EnableBPFClockProbe)
+			log.WithError(err).Infof("Auto-disabling %q feature since KERNEL_HZ cannot be determined", option.EnableBPFClockProbe)
 			option.Config.EnableBPFClockProbe = false
 		} else {
-			option.Config.KernelHz = hz
+			option.Config.KernelHz = int(hz)
 		}
 
 		if option.Config.EnableBPFClockProbe {

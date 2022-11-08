@@ -85,10 +85,22 @@
      - Enable BPF clock source probing for more efficient tick retrieval.
      - bool
      - ``false``
+   * - bpf.ctAnyMax
+     - Configure the maximum number of entries for the non-TCP connection tracking table.
+     - int
+     - ``262144``
+   * - bpf.ctTcpMax
+     - Configure the maximum number of entries in the TCP connection tracking table.
+     - int
+     - ``524288``
    * - bpf.hostBoot
      - Configure the path to the host boot directory
      - string
      - ``"/boot"``
+   * - bpf.hostLegacyRouting
+     - Configure whether direct routing mode should route traffic via host stack (true) or directly and more efficiently out of BPF (false) if the kernel supports it. The latter has the implication that it will also bypass netfilter in the host namespace.
+     - bool
+     - ``false``
    * - bpf.lbExternalClusterIP
      - Allow cluster external access to ClusterIP services.
      - bool
@@ -97,6 +109,10 @@
      - Configure the maximum number of service entries in the load balancer maps.
      - int
      - ``65536``
+   * - bpf.masquerade
+     - Enable native IP masquerade support in eBPF
+     - bool
+     - ``false``
    * - bpf.monitorAggregation
      - Configure the level of aggregation for monitor notifications. Valid options are none, low, medium, maximum.
      - string
@@ -113,6 +129,14 @@
      - Enable host boot directory mount for BPF clock source probing
      - bool
      - ``true``
+   * - bpf.natMax
+     - Configure the maximum number of entries for the NAT table.
+     - int
+     - ``524288``
+   * - bpf.neighMax
+     - Configure the maximum number of entries for the neighbor table.
+     - int
+     - ``524288``
    * - bpf.policyMapMax
      - Configure the maximum number of entries in endpoint policy map (per endpoint).
      - int
@@ -125,6 +149,14 @@
      - Configure the mount point for the BPF filesystem
      - string
      - ``"/sys/fs/bpf"``
+   * - bpf.tproxy
+     - Configure the eBPF-based TPROXY to reduce reliance on iptables rules for implementing Layer 7 policy.
+     - bool
+     - ``false``
+   * - bpf.vlanBypass
+     - Configure explicitly allowed VLAN id's for bpf logic bypass. [0] will allow all VLAN id's without any filtering.
+     - list
+     - ``[]``
    * - certgen
      - Configure certificate generation for Hubble integration. If hubble.tls.auto.method=cronJob, these values are used for the Kubernetes CronJob which will be scheduled regularly to (re)generate any certificates not provided manually.
      - object
@@ -377,10 +409,6 @@
      - Configure where Cilium runtime state should be stored.
      - string
      - ``"/var/run/cilium"``
-   * - datapathMode
-     - Configure which datapath mode should be used for configuring container connectivity. Valid options are "veth" or "ipvlan". Deprecated, to be removed in v1.12.
-     - string
-     - ``"veth"``
    * - debug.enabled
      - Enable debug logging
      - bool
@@ -534,7 +562,7 @@
      - bool
      - ``false``
    * - endpointStatus
-     - Enable endpoint status. Status can be: policy, health, controllers, logs and / or state. For 2 or more options use a comma.
+     - Enable endpoint status. Status can be: policy, health, controllers, log and / or state. For 2 or more options use a space.
      - object
      - ``{"enabled":false,"status":""}``
    * - eni.awsEnablePrefixDelegation
@@ -557,22 +585,30 @@
      - Tags to apply to the newly created ENIs
      - object
      - ``{}``
+   * - eni.gcInterval
+     - Interval for garbage collection of unattached ENIs. Set to "0s" to disable.
+     - string
+     - ``"5m"``
+   * - eni.gcTags
+     - Additional tags attached to ENIs created by Cilium. Dangling ENIs with this tag will be garbage collected
+     - object
+     - ``{"io.cilium/cilium-managed":"true,"io.cilium/cluster-name":"<auto-detected>"}``
    * - eni.iamRole
      - If using IAM role for Service Accounts will not try to inject identity values from cilium-aws kubernetes secret. Adds annotation to service account if managed by Helm. See https://github.com/aws/amazon-eks-pod-identity-webhook
      - string
      - ``""``
    * - eni.instanceTagsFilter
      - Filter via AWS EC2 Instance tags (k=v) which will dictate which AWS EC2 Instances are going to be used to create new ENIs
-     - string
-     - ``""``
+     - list
+     - ``[]``
    * - eni.subnetIDsFilter
      - Filter via subnet IDs which will dictate which subnets are going to be used to create new ENIs Important note: This requires that each instance has an ENI with a matching subnet attached when Cilium is deployed. If you only want to control subnets for ENIs attached by Cilium, use the CNI configuration file settings (cni.customConf) instead.
-     - string
-     - ``""``
+     - list
+     - ``[]``
    * - eni.subnetTagsFilter
      - Filter via tags (k=v) which will dictate which subnets are going to be used to create new ENIs Important note: This requires that each instance has an ENI with a matching subnet attached when Cilium is deployed. If you only want to control subnets for ENIs attached by Cilium, use the CNI configuration file settings (cni.customConf) instead.
-     - string
-     - ``""``
+     - list
+     - ``[]``
    * - eni.updateEC2AdapterLimitViaAPI
      - Update ENI Adapter limits from the EC2 API
      - bool
@@ -693,6 +729,26 @@
      - Additional agent volumes.
      - list
      - ``[]``
+   * - gatewayAPI.enabled
+     - Enable support for Gateway API in cilium This will automatically set enable-envoy-config as well.
+     - bool
+     - ``false``
+   * - gatewayAPI.secretsNamespace
+     - SecretsNamespace is the namespace in which envoy SDS will retrieve TLS secrets from.
+     - object
+     - ``{"create":true,"name":"cilium-secrets","sync":true}``
+   * - gatewayAPI.secretsNamespace.create
+     - Create secrets namespace for Gateway API.
+     - bool
+     - ``true``
+   * - gatewayAPI.secretsNamespace.name
+     - Name of Gateway API secret namespace.
+     - string
+     - ``"cilium-secrets"``
+   * - gatewayAPI.secretsNamespace.sync
+     - Enable secret sync, which will make sure all TLS secrets used by Ingress are synced to secretsNamespace.name. If disabled, TLS secrets must be maintained externally.
+     - bool
+     - ``true``
    * - gke.enabled
      - Enable Google Kubernetes Engine integration
      - bool
@@ -728,7 +784,11 @@
    * - hubble.metrics
      - Hubble metrics configuration. See https://docs.cilium.io/en/stable/operations/metrics/#hubble-metrics for more comprehensive documentation about Hubble metrics.
      - object
-     - ``{"enabled":null,"port":9965,"serviceAnnotations":{},"serviceMonitor":{"annotations":{},"enabled":false,"interval":"10s","labels":{},"metricRelabelings":null}}``
+     - ``{"dashboards":{"annotations":{},"enabled":true,"label":"grafana_dashboard","labelValue":"1","namespace":null},"enableOpenMetrics":false,"enabled":null,"port":9965,"serviceAnnotations":{},"serviceMonitor":{"annotations":{},"enabled":false,"interval":"10s","labels":{},"metricRelabelings":null}}``
+   * - hubble.metrics.enableOpenMetrics
+     - Enables exporting hubble metrics in OpenMetrics format.
+     - bool
+     - ``false``
    * - hubble.metrics.enabled
      - Configures the list of metrics to collect. If empty or null, metrics are disabled. Example:    enabled:   - dns:query;ignoreAAAA   - drop   - tcp   - flow   - icmp   - http  You can specify the list of metrics from the helm CLI:    --set metrics.enabled="{dns:query;ignoreAAAA,drop,tcp,flow,icmp,http}"
      - string
@@ -773,6 +833,10 @@
      - Target Port for the Peer service.
      - int
      - ``4244``
+   * - hubble.preferIpv6
+     - Whether Hubble should prefer to announce IPv6 or IPv4 addresses if both are available.
+     - bool
+     - ``false``
    * - hubble.relay.affinity
      - Affinity for hubble-replay
      - object
@@ -1133,6 +1197,10 @@
      - IngressLBAnnotations are the annotation prefixes, which are used to filter annotations to propagate from Ingress to the Load Balancer service
      - list
      - ``["service.beta.kubernetes.io","service.kubernetes.io","cloud.google.com"]``
+   * - ingressController.loadbalancerMode
+     - Default ingress load balancer mode Supported values: shared, dedicated For granular control, use the following annotations on the ingress resource io.cilium.ingress/loadbalancer-mode: shared
+     - string
+     - ``"dedicated"``
    * - ingressController.secretsNamespace
      - SecretsNamespace is the namespace in which envoy SDS will retrieve TLS secrets from.
      - object
@@ -1149,6 +1217,22 @@
      - Enable secret sync, which will make sure all TLS secrets used by Ingress are synced to secretsNamespace.name. If disabled, TLS secrets must be maintained externally.
      - bool
      - ``true``
+   * - ingressController.service
+     - Load-balancer service in shared mode. This is a single load-balancer service for all Ingress resources.
+     - object
+     - ``{"annotations":{},"labels":{},"name":"cilium-ingress"}``
+   * - ingressController.service.annotations
+     - Annotations to be added for the shared LB service
+     - object
+     - ``{}``
+   * - ingressController.service.labels
+     - Labels to be added for the shared LB service
+     - object
+     - ``{}``
+   * - ingressController.service.name
+     - Service name
+     - string
+     - ``"cilium-ingress"``
    * - installIptablesRules
      - Configure whether to install iptables rules to allow for TPROXY (L7 proxy injection), iptables-based masquerading and compatibility with kube-proxy.
      - bool
@@ -1189,14 +1273,30 @@
      - IPv6 CIDR list range to delegate to individual nodes for IPAM.
      - list
      - ``[]``
+   * - ipam.operator.externalAPILimitBurstSize
+     - The maximum burst size when rate limiting access to external APIs. Also known as the token bucket capacity.
+     - string
+     - ``20``
+   * - ipam.operator.externalAPILimitQPS
+     - The maximum queries per second when rate limiting access to external APIs. Also known as the bucket refill rate, which is used to refill the bucket up to the burst size capacity.
+     - string
+     - ``4.0``
    * - ipv4.enabled
      - Enable IPv4 support.
      - bool
      - ``true``
+   * - ipv4NativeRoutingCIDR
+     - Allows to explicitly specify the IPv4 CIDR for native routing. When specified, Cilium assumes networking for this CIDR is preconfigured and hands traffic destined for that range to the Linux network stack without applying any SNAT. Generally speaking, specifying a native routing CIDR implies that Cilium can depend on the underlying networking stack to route packets to their destination. To offer a concrete example, if Cilium is configured to use direct routing and the Kubernetes CIDR is included in the native routing CIDR, the user must configure the routes to reach pods, either manually or by setting the auto-direct-node-routes flag.
+     - string
+     - ``""``
    * - ipv6.enabled
      - Enable IPv6 support.
      - bool
      - ``false``
+   * - ipv6NativeRoutingCIDR
+     - Allows to explicitly specify the IPv6 CIDR for native routing. When specified, Cilium assumes networking for this CIDR is preconfigured and hands traffic destined for that range to the Linux network stack without applying any SNAT. Generally speaking, specifying a native routing CIDR implies that Cilium can depend on the underlying networking stack to route packets to their destination. To offer a concrete example, if Cilium is configured to use direct routing and the Kubernetes CIDR is included in the native routing CIDR, the user must configure the routes to reach pods, either manually or by setting the auto-direct-node-routes flag.
+     - string
+     - ``""``
    * - k8s
      - Configure Kubernetes specific configuration
      - object
@@ -1485,6 +1585,10 @@
      - cilium-operator update strategy
      - object
      - ``{"rollingUpdate":{"maxSurge":1,"maxUnavailable":1},"type":"RollingUpdate"}``
+   * - pmtuDiscovery.enabled
+     - Enable path MTU discovery to send ICMP fragmentation-needed replies to the client.
+     - bool
+     - ``false``
    * - podAnnotations
      - Annotations to be added to agent pods
      - object
@@ -1649,10 +1753,26 @@
      - Enable SCTP support. NOTE: Currently, SCTP support does not support rewriting ports or multihoming.
      - bool
      - ``false``
-   * - securityContext
-     - Security context to be added to agent pods
-     - object
-     - ``{"extraCapabilities":["DAC_OVERRIDE","FOWNER","SETGID","SETUID"],"privileged":false}``
+   * - securityContext.capabilities.applySysctlOverwrites
+     - capabilities for the ``apply-sysctl-overwrites`` init container
+     - list
+     - ``["SYS_ADMIN","SYS_CHROOT","SYS_PTRACE"]``
+   * - securityContext.capabilities.ciliumAgent
+     - Capabilities for the ``cilium-agent`` container
+     - list
+     - ``["CHOWN","KILL","NET_ADMIN","NET_RAW","IPC_LOCK","SYS_MODULE","SYS_ADMIN","SYS_RESOURCE","DAC_OVERRIDE","FOWNER","SETGID","SETUID"]``
+   * - securityContext.capabilities.cleanCiliumState
+     - Capabilities for the ``clean-cilium-state`` init container
+     - list
+     - ``["NET_ADMIN","SYS_MODULE","SYS_ADMIN","SYS_RESOURCE"]``
+   * - securityContext.capabilities.mountCgroup
+     - Capabilities for the ``mount-cgroup`` init container
+     - list
+     - ``["SYS_ADMIN","SYS_CHROOT","SYS_PTRACE"]``
+   * - securityContext.privileged
+     - Run the pod with elevated privileges
+     - bool
+     - ``false``
    * - serviceAccounts
      - Define serviceAccount names for components.
      - object
@@ -1689,6 +1809,14 @@
      - interval between checks of the startup probe
      - int
      - ``2``
+   * - statelessNat46x64
+     - Configure Stateless NAT46/NAT64 translation
+     - object
+     - ``{"enabled":false}``
+   * - statelessNat46x64.enabled
+     - Enable RFC8215-prefixed translation
+     - bool
+     - ``false``
    * - svcSourceRangeCheck
      - Enable check of service source ranges (currently, only for LoadBalancer).
      - bool

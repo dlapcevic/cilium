@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
-//go:build !privileged_tests && integration_tests
+//go:build integration_tests
 
 package cmd
 
@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -67,7 +68,7 @@ func NewFakeIdentityAllocator(c cache.IdentityCache) *FakeRefcountingIdentityAll
 // 'newlyAllocatedIdentities' is not properly mocked out.
 //
 // The resulting identities are not guaranteed to have all fields populated.
-func (f *FakeRefcountingIdentityAllocator) AllocateCIDRsForIPs(IPs []net.IP, newlyAllocatedIdentities map[string]*identity.Identity) ([]*identity.Identity, error) {
+func (f *FakeRefcountingIdentityAllocator) AllocateCIDRsForIPs(IPs []net.IP, newlyAllocatedIdentities map[netip.Prefix]*identity.Identity) ([]*identity.Identity, error) {
 	result := make([]*identity.Identity, 0, len(IPs))
 	for _, ip := range IPs {
 		id, ok := f.ipToIdentity[ip.String()]
@@ -124,10 +125,10 @@ func (ds *DaemonFQDNSuite) SetUpTest(c *C) {
 }
 
 // makeIPs generates count sequential IPv4 IPs
-func makeIPs(count uint32) []net.IP {
-	ips := make([]net.IP, 0, count)
+func makeIPs(count uint32) []netip.Addr {
+	ips := make([]netip.Addr, 0, count)
 	for i := uint32(0); i < count; i++ {
-		ips = append(ips, net.IPv4(byte(i>>24), byte(i>>16), byte(i>>8), byte(i>>0)))
+		ips = append(ips, netip.AddrFrom4([4]byte{byte(i >> 24), byte(i >> 16), byte(i >> 8), byte(i >> 0)}))
 	}
 	return ips
 }

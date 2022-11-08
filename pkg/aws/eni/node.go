@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
+
 // Copyright 2017 Lyft, Inc.
 
 package eni
@@ -225,7 +226,7 @@ func (n *Node) PrepareIPAllocation(scopedLog *logrus.Entry) (a *ipam.AllocationA
 		if availableOnENI <= 0 {
 			continue
 		} else {
-			a.AvailableInterfaces++
+			a.InterfaceCandidates++
 		}
 
 		scopedLog.WithFields(logrus.Fields{
@@ -246,7 +247,7 @@ func (n *Node) PrepareIPAllocation(scopedLog *logrus.Entry) (a *ipam.AllocationA
 			}
 		}
 	}
-	a.AvailableInterfaces = limits.Adapters - len(n.enis) + a.AvailableInterfaces
+	a.EmptyInterfaceSlots = limits.Adapters - len(n.enis)
 
 	return
 }

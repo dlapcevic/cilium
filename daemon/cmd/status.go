@@ -21,7 +21,6 @@ import (
 	"github.com/cilium/cilium/pkg/datapath"
 	datapathOption "github.com/cilium/cilium/pkg/datapath/option"
 	"github.com/cilium/cilium/pkg/identity"
-	"github.com/cilium/cilium/pkg/k8s"
 	k8smetrics "github.com/cilium/cilium/pkg/k8s/metrics"
 	"github.com/cilium/cilium/pkg/kvstore"
 	"github.com/cilium/cilium/pkg/lock"
@@ -90,13 +89,13 @@ func (k *k8sVersion) update(version *versionapi.Info) string {
 var k8sVersionCache k8sVersion
 
 func (d *Daemon) getK8sStatus() *models.K8sStatus {
-	if !k8s.IsEnabled() {
+	if !d.clientset.IsEnabled() {
 		return &models.K8sStatus{State: models.StatusStateDisabled}
 	}
 
 	version, valid := k8sVersionCache.cachedVersion()
 	if !valid {
-		k8sVersion, err := k8s.Client().Discovery().ServerVersion()
+		k8sVersion, err := d.clientset.Discovery().ServerVersion()
 		if err != nil {
 			return &models.K8sStatus{State: models.StatusStateFailure, Msg: err.Error()}
 		}
@@ -248,6 +247,7 @@ func (d *Daemon) getKubeProxyReplacementStatus() *models.KubeProxyReplacement {
 		ExternalIPs:           &models.KubeProxyReplacementFeaturesExternalIPs{},
 		HostReachableServices: &models.KubeProxyReplacementFeaturesHostReachableServices{},
 		SocketLB:              &models.KubeProxyReplacementFeaturesSocketLB{},
+		SocketLBTracing:       &models.KubeProxyReplacementFeaturesSocketLBTracing{},
 		SessionAffinity:       &models.KubeProxyReplacementFeaturesSessionAffinity{},
 		GracefulTermination:   &models.KubeProxyReplacementFeaturesGracefulTermination{},
 		Nat46X64:              &models.KubeProxyReplacementFeaturesNat46X64{},
@@ -290,6 +290,8 @@ func (d *Daemon) getKubeProxyReplacementStatus() *models.KubeProxyReplacement {
 			protocols = append(protocols, "UDP")
 		}
 		features.HostReachableServices.Protocols = protocols
+
+		features.SocketLBTracing.Enabled = true
 	}
 	if option.Config.EnableSessionAffinity {
 		features.SessionAffinity.Enabled = true
@@ -678,10 +680,16 @@ func (d *Daemon) getStatus(brief bool) models.StatusResponse {
 			State: d.statusResponse.ContainerRuntime.State,
 			Msg:   fmt.Sprintf("%s    %s", ciliumVer, msg),
 		}
-	case k8s.IsEnabled() && d.statusResponse.Kubernetes != nil && d.statusResponse.Kubernetes.State != models.StatusStateOk:
+	case d.clientset.IsEnabled() && d.statusResponse.Kubernetes != nil && d.statusResponse.Kubernetes.State != models.StatusStateOk:
 		msg := "Kubernetes service is not ready"
 		sr.Cilium = &models.Status{
 			State: d.statusResponse.Kubernetes.State,
+			Msg:   fmt.Sprintf("%s    %s", ciliumVer, msg),
+		}
+	case d.statusResponse.CniFile != nil && d.statusResponse.CniFile.State == models.StatusStateFailure:
+		msg := "Could not write CNI config file"
+		sr.Cilium = &models.Status{
+			State: models.StatusStateFailure,
 			Msg:   fmt.Sprintf("%s    %s", ciliumVer, msg),
 		}
 	default:
@@ -1003,7 +1011,7 @@ func (d *Daemon) startStatusCollector(cleaner *daemonCleanup) {
 		{
 			Name: "kube-proxy-replacement",
 			Probe: func(ctx context.Context) (interface{}, error) {
-				if k8s.IsEnabled() || option.Config.DatapathMode == datapathOption.DatapathModeLBOnly {
+				if d.clientset.IsEnabled() || option.Config.DatapathMode == datapathOption.DatapathModeLBOnly {
 					return d.getKubeProxyReplacementStatus(), nil
 				} else {
 					return nil, nil
@@ -1017,6 +1025,54 @@ func (d *Daemon) startStatusCollector(cleaner *daemonCleanup) {
 					if s, ok := status.Data.(*models.KubeProxyReplacement); ok {
 						d.statusResponse.KubeProxyReplacement = s
 					}
+				}
+			},
+		},
+		{
+			Name: "write-cni-file",
+			Probe: func(ctx context.Context) (interface{}, error) {
+				if option.Config.WriteCNIConfigurationWhenReady == "" {
+					return &models.Status{
+						State: models.StatusStateDisabled,
+						Msg:   "CNI configuration file management disabled",
+					}, nil
+				}
+
+				// extract cni status from controllers
+				statuses := d.controllers.GetStatusModel()
+				for _, cs := range statuses {
+					if cs.Name != cniControllerName {
+						continue
+					}
+
+					if cs.Status == nil || (cs.Status.FailureCount == 0 && cs.Status.SuccessCount == 0) {
+						return &models.Status{
+							State: models.StatusStateFailure,
+							Msg:   "CNI config file has not yet been written",
+						}, nil
+					}
+					if cs.Status.SuccessCount > 0 {
+						return &models.Status{
+							State: models.StatusStateOk,
+							Msg:   "CNI configuration file successfully written to " + option.Config.WriteCNIConfigurationWhenReady,
+						}, nil
+					}
+
+					return &models.Status{
+						State: models.StatusStateFailure,
+						Msg:   cs.Status.LastFailureMsg,
+					}, nil
+				}
+				return &models.Status{
+					State: models.StatusStateFailure,
+					Msg:   "CNI configuration file controller hasn't yet run",
+				}, nil
+			},
+			OnStatusUpdate: func(status status.Status) {
+				d.statusCollectMutex.Lock()
+				defer d.statusCollectMutex.Unlock()
+				if s, ok := status.Data.(*models.Status); ok {
+					d.statusResponse.CniFile = s
 				}
 			},
 		},

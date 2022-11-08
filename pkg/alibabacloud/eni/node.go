@@ -155,13 +155,17 @@ func (n *Node) CreateInterface(ctx context.Context, allocation *ipam.AllocationA
 
 	err = n.manager.api.AttachNetworkInterface(ctx, instanceID, eniID)
 	if err != nil {
+		err2 := n.manager.api.DeleteNetworkInterface(ctx, eniID)
+		if err2 != nil {
+			scopedLog.Errorf("Failed to release ENI after failure to attach, %s", err2.Error())
+		}
 		return 0, unableToAttachENI, fmt.Errorf("%s %s", errUnableToAttachENI, err)
 	}
 	_, err = n.manager.api.WaitENIAttached(ctx, eniID)
 	if err != nil {
 		err2 := n.manager.api.DeleteNetworkInterface(ctx, eniID)
 		if err2 != nil {
-			scopedLog.Errorf("Failed to release ENI %s", err2.Error())
+			scopedLog.Errorf("Failed to release ENI after failure to attach, %s", err2.Error())
 		}
 		return 0, unableToAttachENI, fmt.Errorf("%s %s", errUnableToAttachENI, err)
 	}
@@ -248,7 +252,7 @@ func (n *Node) PrepareIPAllocation(scopedLog *logrus.Entry) (*ipam.AllocationAct
 		if availableOnENI <= 0 {
 			continue
 		} else {
-			a.AvailableInterfaces++
+			a.InterfaceCandidates++
 		}
 
 		scopedLog.WithFields(logrus.Fields{
@@ -269,7 +273,7 @@ func (n *Node) PrepareIPAllocation(scopedLog *logrus.Entry) (*ipam.AllocationAct
 			}
 		}
 	}
-	a.AvailableInterfaces = l.Adapters - len(n.enis) + a.AvailableInterfaces
+	a.EmptyInterfaceSlots = l.Adapters - len(n.enis)
 	return a, nil
 }
 

@@ -203,6 +203,22 @@ to create a Kubernetes cluster locally or using a managed Kubernetes service:
 
        .. include:: ../installation/rancher-desktop-configure.rst
 
+    .. group-tab:: Alibaba ACK
+
+        .. include:: ../beta.rst
+
+        .. note::
+
+            The AlibabaCloud ENI integration with Cilium is subject to the following limitations:
+
+            - It is currently only enabled for IPv4.
+            - It only works with instances supporting ENI. Refer to `Instance families <https://www.alibabacloud.com/help/doc-detail/25378.htm>`_ for details.
+
+        Setup a Kubernetes on AlibabaCloud. You can use any method you prefer.
+        The quickest way is to create an ACK (Alibaba Cloud Container Service for
+        Kubernetes) cluster and to replace the CNI plugin with Cilium.
+        For more details on how to set up an ACK cluster please follow
+        the `official documentation <https://www.alibabacloud.com/help/doc-detail/86745.htm>`_.
 
 Install the Cilium CLI
 ======================
@@ -321,6 +337,10 @@ You can install Cilium on any Kubernetes cluster. Pick one of the options below:
        .. code-block:: shell-session
 
            cilium install
+
+    .. group-tab:: Alibaba ACK
+
+       You can install Cilium using Helm on Alibaba ACK, refer to `k8s_install_helm` for details.
 
 
 If the installation fails for some reason, run ``cilium status`` to retrieve

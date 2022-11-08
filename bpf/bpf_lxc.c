@@ -11,6 +11,8 @@
 
 #include <linux/icmpv6.h>
 
+#define IS_BPF_LXC 1
+
 /* Controls the inclusion of the CILIUM_CALL_SRV6 section in the object file.
  */
 #define SKIP_SRV6_HANDLING
@@ -70,15 +72,6 @@
 #if defined(ENABLE_ARP_PASSTHROUGH) && defined(ENABLE_ARP_RESPONDER)
 #error "Either ENABLE_ARP_PASSTHROUGH or ENABLE_ARP_RESPONDER can be defined"
 #endif
-
-/* Before upstream commit d71962f3e627 (4.18), map helpers were not
- * allowed to access map values directly. So for those older kernels,
- * we need to copy the data to the stack first.
- * We don't have a probe for that, but the bpf_fib_lookup helper was
- * introduced in the same release.
- */
-#define HAVE_DIRECT_ACCESS_TO_MAP_VALUES \
-    HAVE_PROG_TYPE_HELPER(sched_cls, bpf_fib_lookup)
 
 #define TAIL_CT_LOOKUP4(ID, NAME, DIR, CONDITION, TARGET_ID, TARGET_NAME)	\
 declare_tailcall_if(CONDITION, ID)						\
@@ -1009,10 +1002,6 @@ ct_recreate4:
 
 #ifdef ENABLE_EGRESS_GATEWAY
 	{
-		struct egress_gw_policy_entry *egress_gw_policy;
-		struct endpoint_info *gateway_node_ep;
-		struct endpoint_key key = {};
-
 		/* If the packet is destined to an entity inside the cluster,
 		 * either EP or node, it should not be forwarded to an egress
 		 * gateway since only traffic leaving the cluster is supposed to
@@ -1029,27 +1018,15 @@ ct_recreate4:
 		if (ct_status == CT_REPLY || ct_status == CT_RELATED)
 			goto skip_egress_gateway;
 
-		egress_gw_policy = lookup_ip4_egress_gw_policy(ip4->saddr, ip4->daddr);
-		if (!egress_gw_policy)
-			goto skip_egress_gateway;
+		if (egress_gw_request_needs_redirect(ip4, &tunnel_endpoint)) {
+			/* Send the packet to egress gateway node through a tunnel. */
+			ret = __encap_and_redirect_lxc(ctx, tunnel_endpoint, encrypt_key,
+						       SECLABEL, *dst_id, &trace);
+			if (ret == CTX_ACT_OK)
+				goto encrypt_to_stack;
 
-		/* If the gateway node is the local node, then just let the
-		 * packet go through, as it will be SNATed later on by
-		 * handle_nat_fwd().
-		 */
-		gateway_node_ep = __lookup_ip4_endpoint(egress_gw_policy->gateway_ip);
-		if (gateway_node_ep && (gateway_node_ep->flags & ENDPOINT_F_HOST))
-			goto skip_egress_gateway;
-
-		/* Otherwise encap and redirect the packet to egress gateway
-		 * node through a tunnel.
-		 */
-		ret = encap_and_redirect_lxc(ctx, egress_gw_policy->gateway_ip, encrypt_key,
-					     &key, SECLABEL, *dst_id, &trace);
-		if (ret == CTX_ACT_OK)
-			goto encrypt_to_stack;
-		else
 			return ret;
+		}
 	}
 skip_egress_gateway:
 #endif

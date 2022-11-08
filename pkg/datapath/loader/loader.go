@@ -22,6 +22,7 @@ import (
 	"github.com/cilium/cilium/pkg/datapath/loader/metrics"
 	"github.com/cilium/cilium/pkg/defaults"
 	"github.com/cilium/cilium/pkg/elf"
+	iputil "github.com/cilium/cilium/pkg/ip"
 	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/maps/callsmap"
@@ -61,15 +62,11 @@ type Loader struct {
 
 	// templateCache is the cache of pre-compiled datapaths.
 	templateCache *objectCache
-
-	canDisableDwarfRelocations bool
 }
 
 // NewLoader returns a new loader.
-func NewLoader(canDisableDwarfRelocations bool) *Loader {
-	return &Loader{
-		canDisableDwarfRelocations: canDisableDwarfRelocations,
-	}
+func NewLoader() *Loader {
+	return &Loader{}
 }
 
 // Init initializes the datapath cache with base program hashes derived from
@@ -332,13 +329,13 @@ func (l *Loader) reloadDatapath(ctx context.Context, ep datapath.Endpoint, dirs 
 		scopedLog := ep.Logger(Subsystem).WithFields(logrus.Fields{
 			logfields.Veth: ep.InterfaceName(),
 		})
-		if ip := ep.IPv4Address(); ip.IsSet() {
-			if err := upsertEndpointRoute(ep, *ip.EndpointPrefix()); err != nil {
+		if ip := ep.IPv4Address(); ip.IsValid() {
+			if err := upsertEndpointRoute(ep, *iputil.AddrToIPNet(ip)); err != nil {
 				scopedLog.WithError(err).Warn("Failed to upsert route")
 			}
 		}
-		if ip := ep.IPv6Address(); ip.IsSet() {
-			if err := upsertEndpointRoute(ep, *ip.EndpointPrefix()); err != nil {
+		if ip := ep.IPv6Address(); ip.IsValid() {
+			if err := upsertEndpointRoute(ep, *iputil.AddrToIPNet(ip)); err != nil {
 				scopedLog.WithError(err).Warn("Failed to upsert route")
 			}
 		}
@@ -476,12 +473,12 @@ func (l *Loader) ReloadDatapath(ctx context.Context, ep datapath.Endpoint, stats
 // Unload removes the datapath specific program aspects
 func (l *Loader) Unload(ep datapath.Endpoint) {
 	if ep.RequireEndpointRoute() {
-		if ip := ep.IPv4Address(); ip.IsSet() {
-			removeEndpointRoute(ep, *ip.EndpointPrefix())
+		if ip := ep.IPv4Address(); ip.IsValid() {
+			removeEndpointRoute(ep, *iputil.AddrToIPNet(ip))
 		}
 
-		if ip := ep.IPv6Address(); ip.IsSet() {
-			removeEndpointRoute(ep, *ip.EndpointPrefix())
+		if ip := ep.IPv6Address(); ip.IsValid() {
+			removeEndpointRoute(ep, *iputil.AddrToIPNet(ip))
 		}
 	}
 }

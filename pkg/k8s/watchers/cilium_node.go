@@ -4,13 +4,18 @@
 package watchers
 
 import (
+	"context"
 	"sync"
 
+	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/cache"
 
 	"github.com/cilium/cilium/pkg/comparator"
 	"github.com/cilium/cilium/pkg/k8s"
 	cilium_v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
+	"github.com/cilium/cilium/pkg/k8s/client"
 	"github.com/cilium/cilium/pkg/k8s/informer"
 	"github.com/cilium/cilium/pkg/k8s/utils"
 	"github.com/cilium/cilium/pkg/k8s/watchers/resources"
@@ -28,7 +33,7 @@ func (k *K8sWatcher) RegisterCiliumNodeSubscriber(s subscriber.CiliumNode) {
 	k.CiliumNodeChain.Register(s)
 }
 
-func (k *K8sWatcher) ciliumNodeInit(ciliumNPClient *k8s.K8sCiliumClient, asyncControllers *sync.WaitGroup) {
+func (k *K8sWatcher) ciliumNodeInit(ciliumNPClient client.Clientset, asyncControllers *sync.WaitGroup) {
 	// CiliumNode objects are used for node discovery until the key-value
 	// store is connected
 	var once sync.Once
@@ -140,4 +145,42 @@ func (k *K8sWatcher) ciliumNodeInit(ciliumNPClient *k8s.K8sCiliumClient, asyncCo
 
 		log.Info("Disconnected from key-value store, restarting CiliumNode watcher")
 	}
+}
+
+// GetCiliumNode returns the CiliumNode "nodeName" from the local store. If the
+// local store is not initialized then it will fallback retrieving the node
+// from kube-apiserver.
+func (k *K8sWatcher) GetCiliumNode(ctx context.Context, nodeName string) (*cilium_v2.CiliumNode, error) {
+	var (
+		err                      error
+		nodeInterface            interface{}
+		exists, getFromAPIServer bool
+	)
+	k.ciliumNodeStoreMU.RLock()
+	// k.ciliumNodeStore might not be set in all invocations of GetCiliumNode,
+	// for example, during Cilium initialization GetCiliumNode is called from
+	// WaitForNodeInformation, which happens before ciliumNodeStore,
+	// so we will fallback to perform an API request to kube-apiserver.
+	if k.ciliumNodeStore == nil {
+		getFromAPIServer = true
+	} else {
+		nodeInterface, exists, err = k.ciliumNodeStore.GetByKey(nodeName)
+	}
+	k.ciliumNodeStoreMU.RUnlock()
+
+	if getFromAPIServer {
+		// fallback to using the kube-apiserver
+		return k.clientset.CiliumV2().CiliumNodes().Get(ctx, nodeName, v1.GetOptions{})
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, k8sErrors.NewNotFound(schema.GroupResource{
+			Group:    "cilium",
+			Resource: "CiliumNode",
+		}, nodeName)
+	}
+	return nodeInterface.(*cilium_v2.CiliumNode).DeepCopy(), nil
 }

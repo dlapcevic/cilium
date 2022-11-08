@@ -7,7 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 
@@ -437,12 +437,6 @@ func (p *Repository) Iterate(f func(rule *api.Rule)) {
 // provided EndpointSet. The provided WaitGroup is signaled for a given endpoint
 // when it is finished being processed.
 func (r ruleSlice) UpdateRulesEndpointsCaches(endpointsToBumpRevision, endpointsToRegenerate *EndpointSet, policySelectionWG *sync.WaitGroup) {
-	// No need to check whether endpoints need to be regenerated here since we
-	// will unconditionally regenerate all endpoints later.
-	if !option.Config.SelectiveRegeneration {
-		return
-	}
-
 	endpointsToBumpRevision.ForEachGo(policySelectionWG, func(epp Endpoint) {
 		endpointSelected, err := r.updateEndpointsCaches(epp)
 		if endpointSelected {
@@ -616,11 +610,11 @@ type TranslationResult struct {
 
 	// BackendPrefixes contains all egress CIDRs that are to be added
 	// for the translation.
-	PrefixesToAdd []*net.IPNet
+	PrefixesToAdd []netip.Prefix
 
 	// BackendPrefixes contains all egress CIDRs that are to be removed
 	// for the translation.
-	PrefixesToRelease []*net.IPNet
+	PrefixesToRelease []netip.Prefix
 }
 
 // TranslateRules traverses rules and applies provided translator to rules

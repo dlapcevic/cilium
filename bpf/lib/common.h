@@ -62,9 +62,12 @@
 # endif
 #endif
 
-/* XDP to SKB transferred meta data. */
-#define XFER_PKT_NO_SVC		1 /* Skip upper service handling. */
-#define XFER_PKT_ENCAP		2 /* needs encap, tunnel info is in metadata. */
+/* XFER_FLAGS that get transferred from XDP to SKB */
+enum {
+	XFER_PKT_NO_SVC		= (1 << 0),  /* Skip upper service handling. */
+	XFER_PKT_ENCAP		= (1 << 1),  /* needs encap, tunnel info is in metadata. */
+	XFER_PKT_SNAT_DONE	= (1 << 2),  /* SNAT is done */
+};
 
 /* For use in ctx_get_xfer(), after XDP called ctx_move_xfer(). */
 enum {
@@ -86,8 +89,8 @@ enum {
 #define CILIUM_CALL_IPV4_FROM_LXC		7
 #define CILIUM_CALL_IPV4_FROM_NETDEV		CILIUM_CALL_IPV4_FROM_LXC
 #define CILIUM_CALL_IPV4_FROM_OVERLAY		CILIUM_CALL_IPV4_FROM_LXC
-#define CILIUM_CALL_UNUSED1			8
-#define CILIUM_CALL_UNUSED2			9
+#define CILIUM_CALL_IPV46_RFC8215		8
+#define CILIUM_CALL_IPV64_RFC8215		9
 #define CILIUM_CALL_IPV6_FROM_LXC		10
 #define CILIUM_CALL_IPV6_FROM_NETDEV		CILIUM_CALL_IPV6_FROM_LXC
 #define CILIUM_CALL_IPV6_FROM_OVERLAY		CILIUM_CALL_IPV6_FROM_LXC
@@ -394,6 +397,7 @@ enum {
 	CILIUM_NOTIFY_TRACE,
 	CILIUM_NOTIFY_POLICY_VERDICT,
 	CILIUM_NOTIFY_CAPTURE,
+	CILIUM_NOTIFY_TRACE_SOCK,
 };
 
 #define NOTIFY_COMMON_HDR \
@@ -499,6 +503,8 @@ enum {
 #define DROP_INVALID_TC_BUFFER  -184
 #define DROP_NO_SID		-185
 #define DROP_MISSING_SRV6_STATE	-186
+#define DROP_NAT46		-187
+#define DROP_NAT64		-188
 
 #define NAT_PUNT_TO_STACK	DROP_NAT_NOT_NEEDED
 #define NAT_46X64_RECIRC	100

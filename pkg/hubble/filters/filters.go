@@ -131,6 +131,7 @@ var DefaultFilters = []OnBuildFilter{
 	&ProtocolFilter{},
 	&IPFilter{},
 	&PodFilter{},
+	&WorkloadFilter{},
 	&ServiceFilter{},
 	&FQDNFilter{},
 	&LabelsFilter{},
@@ -139,4 +140,5 @@ var DefaultFilters = []OnBuildFilter{
 	&TCPFilter{},
 	&NodeNameFilter{},
 	&IPVersionFilter{},
+	&TraceIDFilter{},
 }

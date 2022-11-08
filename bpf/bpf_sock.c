@@ -16,6 +16,7 @@
 #include "lib/identity.h"
 #include "lib/metrics.h"
 #include "lib/nat_46x64.h"
+#include "lib/trace_sock.h"
 
 #define SYS_REJECT	0
 #define SYS_PROCEED	1
@@ -74,7 +75,7 @@ static __always_inline __maybe_unused bool task_in_extended_hostns(void)
 static __always_inline __maybe_unused bool
 ctx_in_hostns(void *ctx __maybe_unused, __net_cookie *cookie)
 {
-#ifdef BPF_HAVE_NETNS_COOKIE
+#ifdef HAVE_NETNS_COOKIE
 	__net_cookie own_cookie = get_netns_cookie(ctx);
 
 	if (cookie)
@@ -85,36 +86,6 @@ ctx_in_hostns(void *ctx __maybe_unused, __net_cookie *cookie)
 	if (cookie)
 		*cookie = 0;
 	return true;
-#endif
-}
-
-static __always_inline __maybe_unused
-__sock_cookie sock_local_cookie(struct bpf_sock_addr *ctx)
-{
-#ifdef BPF_HAVE_SOCKET_COOKIE
-	/* prandom() breaks down on UDP, hence preference is on
-	 * socket cookie as built-in selector. On older kernels,
-	 * get_socket_cookie() provides a unique per netns cookie
-	 * for the life-time of the socket. For newer kernels this
-	 * is fixed to be a unique system _global_ cookie. Older
-	 * kernels could have a cookie collision when two pods with
-	 * different netns talk to same service backend, but that
-	 * is fine since we always reverse translate to the same
-	 * service IP/port pair. The only case that could happen
-	 * for older kernels is that we have a cookie collision
-	 * where one pod talks to the service IP/port and the
-	 * other pod talks to that same specific backend IP/port
-	 * directly _w/o_ going over service IP/port. Then the
-	 * reverse sock addr is translated to the service IP/port.
-	 * With a global socket cookie this collision cannot take
-	 * place. There, only the even more unlikely case could
-	 * happen where the same UDP socket talks first to the
-	 * service and then to the same selected backend IP/port
-	 * directly which can be considered negligible.
-	 */
-	return get_socket_cookie(ctx);
-#else
-	return ctx->protocol == IPPROTO_TCP ? get_prandom_u32() : 0;
 #endif
 }
 
@@ -294,7 +265,7 @@ static __always_inline bool
 sock4_skip_xlate_if_same_netns(struct bpf_sock_addr *ctx __maybe_unused,
 			       const struct lb4_backend *backend __maybe_unused)
 {
-#ifdef BPF_HAVE_SOCKET_LOOKUP
+#ifdef HAVE_SOCKET_LOOKUP
 	struct bpf_sock_tuple tuple = {
 		.ipv4.daddr = backend->address,
 		.ipv4.dport = backend->port,
@@ -316,7 +287,7 @@ sock4_skip_xlate_if_same_netns(struct bpf_sock_addr *ctx __maybe_unused,
 		sk_release(sk);
 		return true;
 	}
-#endif /* BPF_HAVE_SOCKET_LOOKUP */
+#endif /* HAVE_SOCKET_LOOKUP */
 	return false;
 }
 
@@ -328,9 +299,11 @@ static __always_inline int __sock4_xlate_fwd(struct bpf_sock_addr *ctx,
 	const bool in_hostns = ctx_in_hostns(ctx_full, &id.client_cookie);
 	struct lb4_backend *backend;
 	struct lb4_service *svc;
+	__u16 dst_port = ctx_dst_port(ctx);
+	__u32 dst_ip = ctx->user_ip4;
 	struct lb4_key key = {
-		.address	= ctx->user_ip4,
-		.dport		= ctx_dst_port(ctx),
+		.address	= dst_ip,
+		.dport		= dst_port,
 	}, orig_key = key;
 	struct lb4_service *backend_slot;
 	bool backend_from_affinity = false;
@@ -355,6 +328,9 @@ static __always_inline int __sock4_xlate_fwd(struct bpf_sock_addr *ctx,
 	if (!svc)
 		return -ENXIO;
 
+	send_trace_sock_notify4(ctx_full, XLATE_PRE_DIRECTION_FWD, dst_ip,
+				bpf_ntohs(dst_port));
+
 	/* Do not perform service translation for external IPs
 	 * that are not a local address because we don't want
 	 * a k8s service to easily do MITM attacks for a public
@@ -374,7 +350,7 @@ static __always_inline int __sock4_xlate_fwd(struct bpf_sock_addr *ctx,
 		/* TC level eBPF datapath does not handle node local traffic,
 		 * but we need to redirect for L7 LB also in that case.
 		 */
-		if (is_defined(BPF_HAVE_NETNS_COOKIE) && in_hostns) {
+		if (is_defined(HAVE_NETNS_COOKIE) && in_hostns) {
 			/* Use the L7 LB proxy port as a backend. Normally this
 			 * would cause policy enforcement to be done before the
 			 * L7 LB (which should not be done), but in this case
@@ -442,6 +418,10 @@ static __always_inline int __sock4_xlate_fwd(struct bpf_sock_addr *ctx,
 
 	if (lb4_svc_is_affinity(svc) && !backend_from_affinity)
 		lb4_update_affinity_by_netns(svc, &id, backend_id);
+
+	send_trace_sock_notify4(ctx_full, XLATE_POST_DIRECTION_FWD, backend->address,
+				bpf_ntohs(backend->port));
+
 #ifdef ENABLE_L7_LB
 out:
 #endif
@@ -578,12 +558,16 @@ static __always_inline int __sock4_xlate_rev(struct bpf_sock_addr *ctx,
 					     struct bpf_sock_addr *ctx_full)
 {
 	struct ipv4_revnat_entry *val;
+	__u16 dst_port = ctx_dst_port(ctx);
+	__u32 dst_ip = ctx->user_ip4;
 	struct ipv4_revnat_tuple key = {
 		.cookie		= sock_local_cookie(ctx_full),
-		.address	= ctx->user_ip4,
-		.port		= ctx_dst_port(ctx),
+		.address	= dst_ip,
+		.port		= dst_port,
 	};
 
+	send_trace_sock_notify4(ctx_full, XLATE_PRE_DIRECTION_REV, dst_ip,
+				bpf_ntohs(dst_port));
 	val = map_lookup_elem(&LB4_REVERSE_NAT_SK_MAP, &key);
 	if (val) {
 		struct lb4_service *svc;
@@ -604,6 +588,8 @@ static __always_inline int __sock4_xlate_rev(struct bpf_sock_addr *ctx,
 
 		ctx->user_ip4 = val->address;
 		ctx_set_port(ctx, val->port);
+		send_trace_sock_notify4(ctx_full, XLATE_POST_DIRECTION_REV, val->address,
+					bpf_ntohs(val->port));
 		return 0;
 	}
 
@@ -966,8 +952,9 @@ static __always_inline int __sock6_xlate_fwd(struct bpf_sock_addr *ctx,
 	const bool in_hostns = ctx_in_hostns(ctx, &id.client_cookie);
 	struct lb6_backend *backend;
 	struct lb6_service *svc;
+	__u16 dst_port = ctx_dst_port(ctx);
 	struct lb6_key key = {
-		.dport		= ctx_dst_port(ctx),
+		.dport		= dst_port,
 	}, orig_key;
 	struct lb6_service *backend_slot;
 	bool backend_from_affinity = false;
@@ -991,13 +978,16 @@ static __always_inline int __sock6_xlate_fwd(struct bpf_sock_addr *ctx,
 	if (!svc)
 		return sock6_xlate_v4_in_v6(ctx, udp_only);
 
+	send_trace_sock_notify6(ctx, XLATE_PRE_DIRECTION_FWD, &key.address,
+				bpf_ntohs(dst_port));
+
 	if (sock6_skip_xlate(svc, &orig_key.address))
 		return -EPERM;
 
 #ifdef ENABLE_L7_LB
 	/* See __sock4_xlate_fwd for commentary. */
 	if (lb6_svc_is_l7loadbalancer(svc)) {
-		if (is_defined(BPF_HAVE_NETNS_COOKIE) && in_hostns) {
+		if (is_defined(HAVE_NETNS_COOKIE) && in_hostns) {
 			union v6addr loopback = { .addr[15] = 1, };
 
 			l7backend.address = loopback;
@@ -1043,6 +1033,10 @@ static __always_inline int __sock6_xlate_fwd(struct bpf_sock_addr *ctx,
 
 	if (lb6_svc_is_affinity(svc) && !backend_from_affinity)
 		lb6_update_affinity_by_netns(svc, &id, backend_id);
+
+	send_trace_sock_notify6(ctx, XLATE_POST_DIRECTION_FWD, &backend->address,
+				bpf_ntohs(backend->port));
+
 #ifdef ENABLE_L7_LB
 out:
 #endif
@@ -1134,10 +1128,14 @@ static __always_inline int __sock6_xlate_rev(struct bpf_sock_addr *ctx)
 #ifdef ENABLE_IPV6
 	struct ipv6_revnat_tuple key = {};
 	struct ipv6_revnat_entry *val;
+	__u16 dst_port = ctx_dst_port(ctx);
 
 	key.cookie = sock_local_cookie(ctx);
-	key.port = ctx_dst_port(ctx);
+	key.port = dst_port;
 	ctx_get_v6_address(ctx, &key.address);
+
+	send_trace_sock_notify6(ctx, XLATE_PRE_DIRECTION_REV, &key.address,
+				bpf_ntohs(dst_port));
 
 	val = map_lookup_elem(&LB6_REVERSE_NAT_SK_MAP, &key);
 	if (val) {
@@ -1159,6 +1157,8 @@ static __always_inline int __sock6_xlate_rev(struct bpf_sock_addr *ctx)
 
 		ctx_set_v6_address(ctx, &val->address);
 		ctx_set_port(ctx, val->port);
+		send_trace_sock_notify6(ctx, XLATE_POST_DIRECTION_REV, &val->address,
+					bpf_ntohs(val->port));
 		return 0;
 	}
 #endif /* ENABLE_IPV6 */

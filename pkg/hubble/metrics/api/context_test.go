@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Hubble
 
-//go:build !privileged_tests
-
 package api
 
 import (
@@ -77,7 +75,7 @@ func TestParseContextOptions(t *testing.T) {
 	// All of the labelsContext options should work
 	opts, err = ParseContextOptions(Options{"labelsContext": strings.Join(contextLabelsList, ",")})
 	assert.NoError(t, err)
-	assert.EqualValues(t, "labels=source_pod,source_namespace,source_workload,source_app,destination_pod,destination_namespace,destination_workload,destination_app,traffic_direction", opts.Status())
+	assert.EqualValues(t, "labels=source_ip,source_pod,source_namespace,source_workload,source_app,destination_ip,destination_pod,destination_namespace,destination_workload,destination_app,traffic_direction", opts.Status())
 	assert.EqualValues(t, contextLabelsList, opts.GetLabelNames())
 
 	opts, err = ParseContextOptions(Options{"labelsContext": "non_existent_label"})
@@ -189,14 +187,22 @@ func TestParseGetLabelValues(t *testing.T) {
 			"k8s:app=barapp",
 		},
 	}
-	flow := &pb.Flow{Source: sourceEndpoint, Destination: destinationEndpoint, TrafficDirection: pb.TrafficDirection_INGRESS}
+	flow := &pb.Flow{
+		IP: &pb.IP{
+			Source:      "1.2.3.4",
+			Destination: "5.6.7.8",
+		},
+		Source:           sourceEndpoint,
+		Destination:      destinationEndpoint,
+		TrafficDirection: pb.TrafficDirection_INGRESS,
+	}
 	assert.EqualValues(t,
 		mustGetLabelValues(opts, flow),
 		[]string{
-			// source_pod, source_namespace, source_workload, source_app
-			"foo-deploy-pod", "foo-ns", "foo-deploy", "fooapp",
-			// destination_pod, destination_namespace, destination_workload, destination_app
-			"bar-deploy-pod", "bar-ns", "bar-deploy", "barapp",
+			// source_ip, source_pod, source_namespace, source_workload, source_app
+			"1.2.3.4", "foo-deploy-pod", "foo-ns", "foo-deploy", "fooapp",
+			// destination_ip, destination_pod, destination_namespace, destination_workload, destination_app
+			"5.6.7.8", "bar-deploy-pod", "bar-ns", "bar-deploy", "barapp",
 			// traffic_direction
 			"ingress",
 		},
@@ -207,8 +213,8 @@ func TestParseGetLabelValues(t *testing.T) {
 	assert.EqualValues(t,
 		mustGetLabelValues(opts, &pb.Flow{}),
 		[]string{
-			"", "", "", "",
-			"", "", "", "",
+			"", "", "", "", "",
+			"", "", "", "", "",
 			"unknown",
 		},
 	)
@@ -235,4 +241,86 @@ func Test_reservedIdentityContext(t *testing.T) {
 		Source:      &pb.Endpoint{Labels: []string{"a", "b", "reserved:host"}},
 		Destination: &pb.Endpoint{Labels: []string{"c", "d", "reserved:remote-node"}},
 	}), []string{"reserved:host", "reserved:remote-node"})
+}
+
+func Test_workloadNameContext(t *testing.T) {
+	opts, err := ParseContextOptions(Options{"sourceContext": "workload-name", "destinationContext": "workload-name"})
+	assert.NoError(t, err)
+
+	assert.EqualValues(t, mustGetLabelValues(opts, &pb.Flow{
+		Source:      &pb.Endpoint{Namespace: "foo-ns", PodName: "foo-deploy-pod"},
+		Destination: &pb.Endpoint{Namespace: "bar-ns", PodName: "bar-deploy-pod"}}), []string{"", ""})
+	assert.EqualValues(t, mustGetLabelValues(opts, &pb.Flow{
+		Source:      &pb.Endpoint{Namespace: "foo-ns", PodName: "foo-deploy-pod", Workloads: []*pb.Workload{{Name: "foo-deploy", Kind: "Deployment"}}},
+		Destination: &pb.Endpoint{Namespace: "bar-ns", PodName: "bar-deploy-pod", Workloads: []*pb.Workload{{Name: "bar-deploy", Kind: "Deployment"}}},
+	}), []string{"foo-deploy", "bar-deploy"})
+}
+
+func Test_appContext(t *testing.T) {
+	opts, err := ParseContextOptions(Options{"sourceContext": "app", "destinationContext": "app"})
+	assert.NoError(t, err)
+
+	assert.EqualValues(t, mustGetLabelValues(opts, &pb.Flow{
+		Source:      &pb.Endpoint{Namespace: "foo-ns", PodName: "foo-deploy-pod"},
+		Destination: &pb.Endpoint{Namespace: "bar-ns", PodName: "bar-deploy-pod"}}), []string{"", ""})
+	assert.EqualValues(t, mustGetLabelValues(opts, &pb.Flow{
+		Source:      &pb.Endpoint{Namespace: "foo-ns", PodName: "foo-deploy-pod", Labels: []string{"k8s:app=fooapp"}},
+		Destination: &pb.Endpoint{Namespace: "bar-ns", PodName: "bar-deploy-pod", Labels: []string{"k8s:app=barapp"}},
+	}), []string{"fooapp", "barapp"})
+}
+
+func Test_labelsSetString(t *testing.T) {
+	tests := []struct {
+		name   string
+		labels []string
+		want   string
+	}{
+		{
+			name:   "nil",
+			labels: nil,
+			want:   "",
+		},
+		{
+			name:   "empty",
+			labels: []string{},
+			want:   "",
+		},
+		{
+			// NOTE: "invalid" is not in the contextLabelsList slice and thus
+			// should be filtered out.
+			name:   "invalid",
+			labels: []string{"invalid"},
+			want:   "",
+		},
+		{
+			name:   "single",
+			labels: []string{"source_pod"},
+			want:   "source_pod",
+		},
+		{
+			name:   "duplicated",
+			labels: []string{"source_pod", "source_pod"},
+			want:   "source_pod",
+		},
+		{
+			name:   "two",
+			labels: []string{"source_pod", "source_namespace"},
+			want:   "source_pod,source_namespace",
+		},
+		{
+			// NOTE: although implemented with a Go map, (labelsSet).String
+			// should consistently output in the order defined by the
+			// contextLabelsList slice.
+			name:   "three",
+			labels: []string{"traffic_direction", "destination_pod", "source_app"},
+			want:   "source_app,destination_pod,traffic_direction",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newLabelsSet(tt.labels)
+			assert.Equal(t, tt.want, s.String())
+		})
+	}
 }

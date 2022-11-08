@@ -514,7 +514,7 @@ func RunsOn419Kernel() bool {
 	return os.Getenv("KERNEL") == "419"
 }
 
-func GKENativeRoutingCIDR() string {
+func NativeRoutingCIDR() string {
 	return os.Getenv("NATIVE_CIDR")
 }
 
@@ -552,6 +552,16 @@ func RunsOnGKE() bool {
 // DoesNotRunOnGKE is the complement function of DoesNotRunOnGKE.
 func DoesNotRunOnGKE() bool {
 	return !RunsOnGKE()
+}
+
+// RunsOnAKS returns true if the tests are running on AKS.
+func RunsOnAKS() bool {
+	return GetCurrentIntegration() == CIIntegrationAKS
+}
+
+// DoesNotRunOnAKS is the complement function of DoesNotRunOnAKS.
+func DoesNotRunOnAKS() bool {
+	return !RunsOnAKS()
 }
 
 // RunsOnEKS returns true if the tests are running on EKS.
@@ -741,6 +751,11 @@ func DualStackSupported() bool {
 		return false
 	}
 
+	// AKS does not support dual stack yet
+	if IsIntegration(CIIntegrationAKS) {
+		return false
+	}
+
 	// We only have DualStack enabled in Vagrant test env or on KIND.
 	return (GetCurrentIntegration() == "" || IsIntegration(CIIntegrationKind)) &&
 		supportedVersions(k8sVersion)
@@ -756,6 +771,11 @@ func DualStackSupportBeta() bool {
 	supportedVersions := versioncheck.MustCompile(">=1.20.0")
 	k8sVersion, err := versioncheck.Version(GetCurrentK8SEnv())
 	if err != nil {
+		return false
+	}
+
+	// AKS does not support dual stack yet
+	if IsIntegration(CIIntegrationAKS) {
 		return false
 	}
 

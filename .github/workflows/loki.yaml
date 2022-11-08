@@ -30,6 +30,8 @@ on:
       - ConformanceGKE (ci-gke-1.11)
       - ConformanceGKE (ci-gke-1.12)
       - ConformanceIngress
+      - ConformanceIngress (Dedicated LB)
+      - ConformanceIngress (Shared LB)
       - ConformanceKind1.19
       - Cyclonus network policy test
       - Documentation Updates
@@ -63,7 +65,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Push to Loki
-        uses: michi-covalent/push-to-loki@v0.2.0
+        uses: michi-covalent/push-to-loki@v0.2.2
         with:
           endpoint: https://logs-prod3.grafana.net/loki/api/v1/push
           username: ${{ secrets.LOKI_USERNAME }}

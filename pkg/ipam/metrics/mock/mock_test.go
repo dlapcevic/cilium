@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
-//go:build !privileged_tests
-
 package mock
 
 import (
@@ -30,6 +28,10 @@ func (e *MockSuite) TestMock(c *check.C) {
 	c.Assert(api.AllocatedIPs("used"), check.Equals, 200)
 	api.SetAvailableInterfaces(10)
 	c.Assert(api.AvailableInterfaces(), check.Equals, 10)
+	api.SetInterfaceCandidates(10)
+	c.Assert(api.InterfaceCandidates(), check.Equals, 10)
+	api.SetEmptyInterfaceSlots(10)
+	c.Assert(api.EmptyInterfaceSlots(), check.Equals, 10)
 	api.SetNodes("at-capacity", 5)
 	c.Assert(api.Nodes("at-capacity"), check.Equals, 5)
 	api.IncResyncCount()

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
-//go:build !privileged_tests
-
 package ipcache
 
 import (
@@ -103,7 +101,7 @@ func TestRemoveLabelsFromIPs(t *testing.T) {
 	assert.NotNil(t, id)
 	assert.Equal(t, 1, id.ReferenceCount)
 	// Simulate adding CIDR policy.
-	ids, err := IPIdentityCache.AllocateCIDRsForIPs([]net.IP{net.ParseIP("1.1.1.1")}, nil)
+	ids, err := IPIdentityCache.AllocateCIDRsForIPs([]net.IP{net.ParseIP("1.1.1.1").To4()}, nil)
 	assert.Nil(t, err)
 	assert.Len(t, ids, 1)
 	assert.Equal(t, 2, id.ReferenceCount)

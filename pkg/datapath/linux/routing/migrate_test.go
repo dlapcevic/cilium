@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
-//go:build privileged_tests
-
 package linuxrouting
 
 import (
@@ -12,10 +10,10 @@ import (
 	"os/exec"
 
 	"github.com/vishvananda/netlink"
-	"github.com/vishvananda/netns"
 	. "gopkg.in/check.v1"
 
 	"github.com/cilium/cilium/pkg/datapath/linux/linux_defaults"
+	"github.com/cilium/cilium/pkg/testutils"
 )
 
 var _ = Suite(&MigrateSuite{})
@@ -37,8 +35,10 @@ type MigrateSuite struct {
 	// interfaceDB interface mock
 	OnGetInterfaceNumberByMAC func(mac string) (int, error)
 	OnGetMACByInterfaceNumber func(ifaceNum int) (string, error)
+}
 
-	origNetNS, newNetNS netns.NsHandle
+func (s *MigrateSuite) SetUpSuite(c *C) {
+	testutils.PrivilegedCheck(c)
 }
 
 // n is the number of devices, routes, and rules that will be created in

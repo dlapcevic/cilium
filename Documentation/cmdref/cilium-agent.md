@@ -121,6 +121,7 @@ cilium-agent [flags]
       --enable-local-redirect-policy                            Enable Local Redirect Policy
       --enable-monitor                                          Enable the monitor unix domain socket server (default true)
       --enable-node-port                                        Enable NodePort type services by Cilium
+      --enable-pmtu-discovery                                   Enable path MTU discovery to send ICMP fragmentation-needed replies to the client
       --enable-policy string                                    Enable policy enforcement (default "default")
       --enable-recorder                                         Enable BPF datapath pcap recorder
       --enable-remote-node-identity                             Enable use of remote node identity
@@ -128,6 +129,7 @@ cilium-agent [flags]
       --enable-sctp                                             Enable SCTP support (beta)
       --enable-service-topology                                 Enable support for service topology aware hints
       --enable-session-affinity                                 Enable support for service session affinity
+      --enable-stateless-nat46x64                               Enable stateless NAT46 and NAT64 support
       --enable-svc-source-range-check                           Enable check of service source ranges (currently, only for LoadBalancer) (default true)
       --enable-tracing                                          Enable tracing while determining policy (debugging)
       --enable-unreachable-routes                               Add unreachable routes on pod deletion
@@ -138,7 +140,6 @@ cilium-agent [flags]
       --enable-xdp-prefilter                                    Enable XDP prefiltering
       --enable-xt-socket-fallback                               Enable fallback for missing xt_socket module (default true)
       --encrypt-interface string                                Transparent encryption interface
-      --encrypt-node                                            Enables encrypting traffic from non-Cilium pods and host networking
       --endpoint-queue-size int                                 size of EventQueue per-endpoint (default 25)
       --endpoint-status strings                                 Enable additional CiliumEndpoint status features (controllers,health,log,policy,state)
       --envoy-config-timeout duration                           Timeout duration for Envoy Config acknowledgements (default 2m0s)
@@ -164,6 +165,7 @@ cilium-agent [flags]
       --hubble-listen-address string                            An additional address for Hubble server to listen to, e.g. ":4244"
       --hubble-metrics strings                                  List of Hubble metrics to enable.
       --hubble-metrics-server string                            Address to serve Hubble metrics on.
+      --hubble-prefer-ipv6                                      Prefer IPv6 addresses for announcing nodes when both address types are available.
       --hubble-recorder-sink-queue-size int                     Queue size of each Hubble recorder sink (default 1024)
       --hubble-recorder-storage-path string                     Directory in which pcap files created via the Hubble Recorder API are stored (default "/var/run/cilium/pcaps")
       --hubble-socket-path string                               Set hubble's socket path to listen for connections (default "/var/run/cilium/hubble.sock")
@@ -197,6 +199,8 @@ cilium-agent [flags]
       --ipv6-service-range string                               Kubernetes IPv6 services CIDR if not inside cluster prefix (default "auto")
       --join-cluster                                            Join a Cilium cluster via kvstore registration
       --k8s-api-server string                                   Kubernetes API server URL
+      --k8s-client-burst int                                    Burst value allowed for the K8s client
+      --k8s-client-qps float32                                  Queries per second limit for the K8s client
       --k8s-heartbeat-timeout duration                          Configures the timeout for api-server heartbeat, set to 0 to disable (default 30s)
       --k8s-kubeconfig-path string                              Absolute path of the kubernetes kubeconfig file
       --k8s-namespace string                                    Name of the Kubernetes namespace in which Cilium is deployed in
@@ -241,7 +245,7 @@ cilium-agent [flags]
       --proxy-max-connection-duration-seconds int               Set Envoy HTTP option max_connection_duration seconds. Default 0 (disable)
       --proxy-max-requests-per-connection int                   Set Envoy HTTP option max_requests_per_connection. Default 0 (disable)
       --proxy-prometheus-port int                               Port to serve Envoy metrics on. Default 0 (disabled).
-      --read-cni-conf string                                    Read to the CNI configuration at specified path to extract per node configuration
+      --read-cni-conf string                                    CNI configuration file to use as a source for --write-cni-conf-when-ready. If not supplied, a suitable one will be generated.
       --restore                                                 Restores state, if possible, from previous daemon (default true)
       --route-metric int                                        Overwrite the metric used by cilium when adding routes to its 'cilium_host' device
       --sidecar-istio-proxy-image string                        Regular expression matching compatible Istio sidecar istio-proxy container image names (default "cilium/istio_proxy")
@@ -259,6 +263,7 @@ cilium-agent [flags]
       --tofqdns-proxy-port int                                  Global port on which the in-agent DNS proxy should listen. Default 0 is a OS-assigned port.
       --tofqdns-proxy-response-max-delay duration               The maximum time the DNS proxy holds an allowed DNS response before sending it along. Responses are sent as soon as the datapath is updated with the new IP information. (default 100ms)
       --trace-payloadlen int                                    Length of payload to capture when tracing (default 128)
+      --trace-sock                                              Enable tracing for socket-based LB (default true)
   -t, --tunnel string                                           Tunnel mode {vxlan, geneve, disabled} (default "vxlan" for the "veth" datapath mode)
       --tunnel-port int                                         Tunnel port (default 8472 for "vxlan" and 6081 for "geneve")
       --version                                                 Print version information
@@ -267,12 +272,11 @@ cilium-agent [flags]
       --vtep-endpoint strings                                   List of VTEP IP addresses
       --vtep-mac strings                                        List of VTEP MAC addresses for forwarding traffic outside the cluster
       --vtep-mask string                                        VTEP CIDR Mask for all VTEP CIDRs (default "255.255.255.0")
-      --write-cni-conf-when-ready string                        Write the CNI configuration as specified via --read-cni-conf to path when agent is ready
+      --write-cni-conf-when-ready string                        Write the CNI configuration to the specified path when agent is ready
 ```
 
 ### SEE ALSO
 
-* [cilium-agent cmdref](cilium-agent_cmdref.md)	 - Generate command reference for cilium-agent to given output directory
 * [cilium-agent completion](cilium-agent_completion.md)	 - Generate the autocompletion script for the specified shell
 * [cilium-agent dot-graph](cilium-agent_dot-graph.md)	 - Output the internal dependencies of cilium-agent in graphviz dot format
 * [cilium-agent objects](cilium-agent_objects.md)	 - Print the objects, constructors and lifecycle hooks

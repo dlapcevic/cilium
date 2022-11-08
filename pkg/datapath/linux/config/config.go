@@ -284,6 +284,9 @@ func (h *HeaderfileWriter) WriteNodeConfig(w io.Writer, cfg *datapath.LocalNodeC
 		if option.Config.BPFSocketLBHostnsOnly {
 			cDefinesMap["ENABLE_SOCKET_LB_HOST_ONLY"] = "1"
 		}
+		if option.Config.EnableSocketLBTracing {
+			cDefinesMap["TRACE_SOCK_NOTIFY"] = "1"
+		}
 
 		if cookie, err := netns.GetNetNSCookie(); err == nil {
 			// When running in nested environments (e.g. Kind), cilium-agent does
@@ -333,6 +336,9 @@ func (h *HeaderfileWriter) WriteNodeConfig(w io.Writer, cfg *datapath.LocalNodeC
 				cDefinesMap["LB6_HEALTH_MAP"] = lbmap.HealthProbe6MapName
 			}
 		}
+		if option.Config.EnableStatelessNat46X64 {
+			cDefinesMap["ENABLE_NAT_46X64_STATELESS"] = "1"
+		}
 		if option.Config.NodePortNat46X64 {
 			cDefinesMap["ENABLE_NAT_46X64"] = "1"
 		}
@@ -353,7 +359,7 @@ func (h *HeaderfileWriter) WriteNodeConfig(w io.Writer, cfg *datapath.LocalNodeC
 		if option.Config.NodePortMode == option.NodePortModeDSR ||
 			option.Config.NodePortMode == option.NodePortModeHybrid {
 			cDefinesMap["ENABLE_DSR"] = "1"
-			if option.Config.LoadBalancerPMTUDiscovery {
+			if option.Config.EnablePMTUDiscovery {
 				cDefinesMap["ENABLE_DSR_ICMP_ERRORS"] = "1"
 			}
 			if option.Config.NodePortMode == option.NodePortModeHybrid {
@@ -830,11 +836,11 @@ func (h *HeaderfileWriter) writeStaticData(fw io.Writer, e datapath.EndpointConf
 		// This results in a template BPF object without an "LXC_IP" defined,
 		// __but__ the endpoint still has "LXC_IP" defined. This causes a later
 		// call to loader.ELFSubstitutions() to fail on missing a symbol "LXC_IP".
-		if e.IPv6Address() != nil {
-			fmt.Fprint(fw, defineIPv6("LXC_IP", e.IPv6Address()))
+		if ipv6 := e.IPv6Address(); ipv6.IsValid() {
+			fmt.Fprint(fw, defineIPv6("LXC_IP", ipv6.AsSlice()))
 		}
 
-		fmt.Fprint(fw, defineIPv4("LXC_IPV4", e.IPv4Address()))
+		fmt.Fprint(fw, defineIPv4("LXC_IPV4", e.IPv4Address().AsSlice()))
 		fmt.Fprint(fw, defineUint16("LXC_ID", uint16(e.GetID())))
 	}
 

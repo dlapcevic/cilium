@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2021 Authors of Cilium
+// Copyright Authors of Cilium
 
 package flows_to_world
 
@@ -23,6 +23,7 @@ type flowsToWorldHandler struct {
 	worldLabel   string
 	anyDrop      bool
 	port         bool
+	synOnly      bool
 }
 
 func (h *flowsToWorldHandler) Init(registry *prometheus.Registry, options api.Options) error {
@@ -37,6 +38,8 @@ func (h *flowsToWorldHandler) Init(registry *prometheus.Registry, options api.Op
 			h.anyDrop = true
 		case "port":
 			h.port = true
+		case "syn-only":
+			h.synOnly = true
 		}
 	}
 	labels := []string{"protocol", "verdict"}
@@ -56,7 +59,17 @@ func (h *flowsToWorldHandler) Init(registry *prometheus.Registry, options api.Op
 }
 
 func (h *flowsToWorldHandler) Status() string {
-	return h.context.Status()
+	var status []string
+	if h.anyDrop {
+		status = append(status, "any-drop")
+	}
+	if h.port {
+		status = append(status, "port")
+	}
+	if h.synOnly {
+		status = append(status, "syn-only")
+	}
+	return strings.Join(append(status, h.context.Status()), ",")
 }
 
 func (h *flowsToWorldHandler) isReservedWorld(endpoint *flowpb.Endpoint) bool {
@@ -85,6 +98,12 @@ func (h *flowsToWorldHandler) ProcessFlow(_ context.Context, flow *flowpb.Flow) 
 	if flow.GetVerdict() != flowpb.Verdict_DROPPED && isReply {
 		return nil
 	}
+
+	// if "syn-only" option is set, only count non-reply SYN packets for TCP.
+	if h.synOnly && (!l4.GetTCP().GetFlags().GetSYN() || isReply) {
+		return nil
+	}
+
 	labelValues, err := h.context.GetLabelValues(flow)
 	if err != nil {
 		return err

@@ -405,7 +405,7 @@ func (l *Loader) Reinitialize(ctx context.Context, o datapath.BaseProgramOwner, 
 	args[initArgHostDev1] = hostDev1.Attrs().Name
 	args[initArgHostDev2] = hostDev2.Attrs().Name
 
-	if option.Config.InstallIptRules {
+	if option.Config.InstallIptRules && option.Config.EnableL7Proxy {
 		args[initArgProxyRule] = "true"
 	} else {
 		args[initArgProxyRule] = "false"
@@ -424,11 +424,6 @@ func (l *Loader) Reinitialize(ctx context.Context, o datapath.BaseProgramOwner, 
 	ctx, cancel := context.WithTimeout(ctx, defaults.ExecTimeout)
 	defer cancel()
 
-	extraArgs := []string{"-Dcapture_enabled=0"}
-	if err := l.reinitializeXDPLocked(ctx, extraArgs); err != nil {
-		log.WithError(err).Fatal("Failed to compile XDP program")
-	}
-
 	prog := filepath.Join(option.Config.BpfDir, "init.sh")
 	cmd := exec.CommandContext(ctx, prog, args...)
 	cmd.Env = bpf.Environment()
@@ -436,13 +431,18 @@ func (l *Loader) Reinitialize(ctx context.Context, o datapath.BaseProgramOwner, 
 		return err
 	}
 
-	if l.canDisableDwarfRelocations {
-		// Validate alignments of C and Go equivalent structs
-		if err := alignchecker.CheckStructAlignments(defaults.AlignCheckerName); err != nil {
-			log.WithError(err).Fatal("C and Go structs alignment check failed")
-		}
-	} else {
-		log.Warning("Cannot check matching of C and Go common struct alignments due to old LLVM/clang version")
+	extraArgs := []string{"-Dcapture_enabled=0"}
+	if err := l.reinitializeXDPLocked(ctx, extraArgs); err != nil {
+		log.WithError(err).Fatal("Failed to compile XDP program")
+	}
+
+	// Compile alignchecker program
+	if err := Compile(ctx, "bpf_alignchecker.c", defaults.AlignCheckerName); err != nil {
+		log.WithError(err).Fatal("alignchecker compile failed")
+	}
+	// Validate alignments of C and Go equivalent structs
+	if err := alignchecker.CheckStructAlignments(defaults.AlignCheckerName); err != nil {
+		log.WithError(err).Fatal("C and Go structs alignment check failed")
 	}
 
 	if err := l.reinitializeIPSec(ctx); err != nil {

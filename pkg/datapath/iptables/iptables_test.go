@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
-//go:build !privileged_tests
-
 package iptables
 
 import (
@@ -36,10 +34,6 @@ type mockIptables struct {
 	ipset        string
 	expectations []expectation
 	index        int
-}
-
-func (ipt *mockIptables) addExpectation(args string, out []byte, err error) {
-	ipt.expectations = append(ipt.expectations, expectation{args: args, out: out, err: err})
 }
 
 func (ipt *mockIptables) getProg() string {

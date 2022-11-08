@@ -14,6 +14,7 @@ import (
 	"github.com/cilium/cilium/pkg/controller"
 	"github.com/cilium/cilium/pkg/k8s"
 	cilium_v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
+	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
 	"github.com/cilium/cilium/pkg/k8s/informer"
 	"github.com/cilium/cilium/pkg/k8s/utils"
 	"github.com/cilium/cilium/pkg/k8s/watchers/resources"
@@ -36,7 +37,7 @@ func init() {
 
 // enableCNPWatcher waits for the CiliumNetowrkPolicy CRD availability and then
 // garbage collects stale CiliumNetowrkPolicy status field entries.
-func enableCNPWatcher() error {
+func enableCNPWatcher(clientset k8sClient.Clientset) error {
 	enableCNPStatusUpdates := kvstoreEnabled() && option.Config.K8sEventHandover && !option.Config.DisableCNPStatusUpdates
 	if enableCNPStatusUpdates {
 		log.Info("Starting CNP Status handover from kvstore to k8s")
@@ -49,7 +50,7 @@ func enableCNPWatcher() error {
 	cnpStore := cache.NewStore(cache.DeletionHandlingMetaNamespaceKeyFunc)
 
 	if enableCNPStatusUpdates {
-		cnpStatusMgr = k8s.NewCNPStatusEventHandler(cnpStore, cnpStatusUpdateInterval)
+		cnpStatusMgr = k8s.NewCNPStatusEventHandler(clientset, cnpStore, cnpStatusUpdateInterval)
 		cnpSharedStore, err := store.JoinSharedStore(store.Configuration{
 			Prefix: k8s.CNPStatusesPath,
 			KeyCreator: func() store.Key {
@@ -68,7 +69,7 @@ func enableCNPWatcher() error {
 	}
 
 	ciliumV2Controller := informer.NewInformerWithStore(
-		utils.ListerWatcherFromTyped[*cilium_v2.CiliumNetworkPolicyList](ciliumK8sClient.CiliumV2().CiliumNetworkPolicies("")),
+		utils.ListerWatcherFromTyped[*cilium_v2.CiliumNetworkPolicyList](clientset.CiliumV2().CiliumNetworkPolicies("")),
 		&cilium_v2.CiliumNetworkPolicy{},
 		0,
 		cache.ResourceEventHandlerFuncs{
@@ -80,7 +81,7 @@ func enableCNPWatcher() error {
 					// See https://github.com/cilium/cilium/blob/27fee207f5422c95479422162e9ea0d2f2b6c770/pkg/policy/api/ingress.go#L112-L134
 					cnpCpy := cnp.DeepCopy()
 
-					groups.AddDerivativeCNPIfNeeded(cnpCpy.CiliumNetworkPolicy)
+					groups.AddDerivativeCNPIfNeeded(clientset, cnpCpy.CiliumNetworkPolicy)
 					if enableCNPStatusUpdates {
 						cnpStatusMgr.StartStatusHandler(cnpCpy)
 					}
@@ -100,7 +101,7 @@ func enableCNPWatcher() error {
 						newCNPCpy := newCNP.DeepCopy()
 						oldCNPCpy := oldCNP.DeepCopy()
 
-						groups.UpdateDerivativeCNPIfNeeded(newCNPCpy.CiliumNetworkPolicy, oldCNPCpy.CiliumNetworkPolicy)
+						groups.UpdateDerivativeCNPIfNeeded(clientset, newCNPCpy.CiliumNetworkPolicy, oldCNPCpy.CiliumNetworkPolicy)
 					}
 				}
 			},
@@ -126,7 +127,7 @@ func enableCNPWatcher() error {
 	controller.NewManager().UpdateController("cnp-to-groups",
 		controller.ControllerParams{
 			DoFunc: func(ctx context.Context) error {
-				groups.UpdateCNPInformation()
+				groups.UpdateCNPInformation(clientset)
 				return nil
 			},
 			RunInterval: 5 * time.Minute,

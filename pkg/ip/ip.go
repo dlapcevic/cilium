@@ -10,6 +10,8 @@ import (
 	"net"
 	"net/netip"
 	"sort"
+
+	"golang.org/x/exp/slices"
 )
 
 const (
@@ -764,6 +766,20 @@ func KeepUniqueIPs(ips []net.IP) []net.IP {
 	return returnIPs
 }
 
+// KeepUniqueAddrs transforms the provided multiset of IP addresses into a
+// single set, lexicographically sorted via comparison of the addresses using
+// netip.Addr.Compare (i.e. IPv4 addresses show up before IPv6).
+// The slice is manipulated in-place destructively; it does not create a new slice.
+func KeepUniqueAddrs(addrs []netip.Addr) []netip.Addr {
+	if len(addrs) == 0 {
+		return addrs
+	}
+	sort.Slice(addrs, func(i, j int) bool {
+		return addrs[i].Compare(addrs[j]) < 0
+	})
+	return slices.Compact(addrs)
+}
+
 var privateIPBlocks []*net.IPNet
 
 func initPrivatePrefixes() {
@@ -812,6 +828,8 @@ func IsPublicAddr(ip net.IP) bool {
 }
 
 // GetCIDRPrefixesFromIPs returns all of the ips as a slice of *net.IPNet.
+//
+// Deprecated. Consider using IPsToNetPrefixes() instead.
 func GetCIDRPrefixesFromIPs(ips []net.IP) []*net.IPNet {
 	if len(ips) == 0 {
 		return nil
@@ -943,4 +961,25 @@ func AddrFromIP(ip net.IP) (netip.Addr, bool) {
 		return addr, ok
 	}
 	return addr.Unmap(), ok
+}
+
+// MustAddrFromIP is the same as AddrFromIP except that it assumes the input is
+// a valid IP address and always returns a valid netip.Addr.
+func MustAddrFromIP(ip net.IP) netip.Addr {
+	addr, ok := AddrFromIP(ip)
+	if !ok {
+		panic("addr is not a valid IP address")
+	}
+	return addr
+}
+
+// MustAddrsFromIPs converts a slice of net.IP to a slice of netip.Addr. It assumes
+// the input slice contains only valid IP addresses and always returns a slice
+// containing valid netip.Addr.
+func MustAddrsFromIPs(ips []net.IP) []netip.Addr {
+	addrs := make([]netip.Addr, 0, len(ips))
+	for _, ip := range ips {
+		addrs = append(addrs, MustAddrFromIP(ip))
+	}
+	return addrs
 }

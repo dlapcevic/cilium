@@ -472,7 +472,6 @@ enabled would look as follows:
     helm install cilium |CHART_RELEASE| \\
         --namespace kube-system \\
         --set tunnel=disabled \\
-        --set autoDirectNodeRoutes=true \\
         --set kubeProxyReplacement=strict \\
         --set loadBalancer.mode=dsr \\
         --set k8sServiceHost=${API_SERVER_IP} \\
@@ -501,7 +500,6 @@ mode would look as follows:
     helm install cilium |CHART_RELEASE| \\
         --namespace kube-system \\
         --set tunnel=disabled \\
-        --set autoDirectNodeRoutes=true \\
         --set kubeProxyReplacement=strict \\
         --set loadBalancer.mode=hybrid \\
         --set k8sServiceHost=${API_SERVER_IP} \\
@@ -537,7 +535,6 @@ looks as follows:
     helm install cilium |CHART_RELEASE| \\
         --namespace kube-system \\
         --set tunnel=disabled \\
-        --set autoDirectNodeRoutes=true \\
         --set kubeProxyReplacement=strict \\
         --set socketLB.hostNamespaceOnly=true
 
@@ -574,7 +571,6 @@ modes and can be enabled as follows for ``loadBalancer.mode=hybrid`` in this exa
     helm install cilium |CHART_RELEASE| \\
         --namespace kube-system \\
         --set tunnel=disabled \\
-        --set autoDirectNodeRoutes=true \\
         --set kubeProxyReplacement=strict \\
         --set loadBalancer.acceleration=native \\
         --set loadBalancer.mode=hybrid \\
@@ -586,8 +582,11 @@ In case of a multi-device environment, where Cilium's device auto-detection sele
 more than a single device to expose NodePort or a user specifies multiple devices
 with ``devices``, the XDP acceleration is enabled on all devices. This means that
 each underlying device's driver must have native XDP support on all Cilium managed
-nodes. In addition, for the performance reasons we recommend kernel >= 5.5 for
+nodes. In addition, for performance reasons we recommend kernel >= 5.5 for
 the multi-device XDP acceleration.
+
+NodePort acceleration can be used with either direct routing (``tunnel=disabled``)
+or tunnel mode. Direct routing is recommended to achieve optimal performance.
 
 A list of drivers supporting native XDP can be found in the table below. The
 corresponding network driver name of an interface can be determined as follows:
@@ -762,7 +761,6 @@ Finally, the deployment can be upgraded and later rolled-out with the
   helm upgrade cilium |CHART_RELEASE| \\
         --namespace kube-system \\
         --reuse-values \\
-        --set autoDirectNodeRoutes=true \\
         --set kubeProxyReplacement=strict \\
         --set loadBalancer.acceleration=native \\
         --set loadBalancer.mode=snat \\
@@ -807,7 +805,6 @@ In order to run XDP, large receive offload (LRO) needs to be disabled on the
 
    $ ethtool -K eth0 lro off
 
-NodePort XDP requires Cilium to run in direct routing mode (``tunnel=disabled``).
 It is recommended to use Azure IPAM for the pod IP address allocation, which
 will automatically configure your virtual network to route pod traffic correctly:
 
@@ -900,29 +897,6 @@ kernels or starting from v5.7 kernels only for the host namespace by default
 and therefore not affecting any application pod ``bind(2)`` requests anymore. In
 order to opt-out from this behavior in general, this setting can be changed for
 expert users by switching ``nodePort.bindProtection`` to ``false``.
-
-NodePort with FHRP & VPC
-************************
-
-When using Cilium's kube-proxy replacement in conjunction with a
-`FHRP <https://en.wikipedia.org/wiki/First-hop_redundancy_protocol>`_
-such as VRRP or Cisco's HSRP and VPC (also known as multi-chassis EtherChannel), the default configuration
-can cause issues or unwanted traffic flows. This is due to an optimization that causes the source IP of
-ingress packets destined for a NodePort to be associated with the corresponding MAC address, and later in
-the reply, the MAC address is used as the destination when forwarding the L2 frame, bypassing the FIB lookup.
-
-In such an environment, it may be preferred to instruct Cilium not to attempt this optimization.
-This will ensure the response is always forwarded to the MAC address of the currently active FHRP peer, no matter
-the origin of the incoming packet.
-
-To disable the optimization set ``bpf.lbBypassFIBLookup`` to ``false``.
-
-.. parsed-literal::
-
-    helm install cilium |CHART_RELEASE| \\
-        --namespace kube-system \\
-        --set kubeProxyReplacement=strict \\
-        --set bpf.lbBypassFIBLookup=false
 
 .. _Configuring Maps:
 
@@ -1175,7 +1149,8 @@ Graceful Termination
 Cilium's eBPF kube-proxy replacement supports graceful termination of service
 endpoint pods. The feature requires at least Kubernetes version 1.20, and
 the feature gate ``EndpointSliceTerminatingCondition`` needs to be enabled.
-By default, the Cilium agent then detects such terminating Pod state. If needed,
+By default, the Cilium agent then detects such terminating Pod events, and
+increments the metric ``k8s_terminating_endpoints_events_total``. If needed,
 the feature can be disabled with the configuration option ``enable-k8s-terminating-endpoint``.
 
 The cilium agent feature flag can be probed by running ``cilium status`` command:

@@ -51,6 +51,12 @@ func LoadCollectionSpecFromReader(rd io.ReaderAt) (*CollectionSpec, error) {
 		return nil, err
 	}
 
+	// Checks if the ELF file is for BPF data.
+	// Old LLVM versions set e_machine to EM_NONE.
+	if f.File.Machine != unix.EM_NONE && f.File.Machine != elf.EM_BPF {
+		return nil, fmt.Errorf("unexpected machine type for BPF ELF: %s", f.File.Machine)
+	}
+
 	var (
 		licenseSection *elf.Section
 		versionSection *elf.Section
@@ -259,10 +265,6 @@ func (ec *elfCode) loadRelocations(relSections map[elf.SectionIndex]*elf.Section
 			target := ec.sections[rel.Section]
 			if target == nil {
 				return fmt.Errorf("section %q: reference to %q in section %s: %w", section.Name, rel.Name, rel.Section, ErrNotSupported)
-			}
-
-			if target.Flags&elf.SHF_STRINGS > 0 {
-				return fmt.Errorf("section %q: string is not stack allocated: %w", section.Name, ErrNotSupported)
 			}
 
 			target.references++
@@ -901,13 +903,6 @@ func mapSpecFromBTF(es *elfSection, vs *btf.VarSecinfo, def *btf.Struct, spec *b
 		}
 	}
 
-	if key == nil {
-		key = &btf.Void{}
-	}
-	if value == nil {
-		value = &btf.Void{}
-	}
-
 	return &MapSpec{
 		Name:       SanitizeName(name, -1),
 		Type:       MapType(mapType),
@@ -1027,22 +1022,33 @@ func (ec *elfCode) loadDataSections(maps map[string]*MapSpec) error {
 			continue
 		}
 
-		data, err := sec.Data()
-		if err != nil {
-			return fmt.Errorf("data section %s: can't get contents: %w", sec.Name, err)
-		}
-
-		if uint64(len(data)) > math.MaxUint32 {
-			return fmt.Errorf("data section %s: contents exceed maximum size", sec.Name)
-		}
-
 		mapSpec := &MapSpec{
 			Name:       SanitizeName(sec.Name, -1),
 			Type:       Array,
 			KeySize:    4,
-			ValueSize:  uint32(len(data)),
+			ValueSize:  uint32(sec.Size),
 			MaxEntries: 1,
-			Contents:   []MapKV{{uint32(0), data}},
+		}
+
+		switch sec.Type {
+		// Only open the section if we know there's actual data to be read.
+		case elf.SHT_PROGBITS:
+			data, err := sec.Data()
+			if err != nil {
+				return fmt.Errorf("data section %s: can't get contents: %w", sec.Name, err)
+			}
+
+			if uint64(len(data)) > math.MaxUint32 {
+				return fmt.Errorf("data section %s: contents exceed maximum size", sec.Name)
+			}
+			mapSpec.Contents = []MapKV{{uint32(0), data}}
+
+		case elf.SHT_NOBITS:
+			// NOBITS sections like .bss contain only zeroes, and since data sections
+			// are Arrays, the kernel already preallocates them. Skip reading zeroes
+			// from the ELF.
+		default:
+			return fmt.Errorf("data section %s: unknown section type %s", sec.Name, sec.Type)
 		}
 
 		// It is possible for a data section to exist without a corresponding BTF Datasec
@@ -1057,13 +1063,9 @@ func (ec *elfCode) loadDataSections(maps map[string]*MapSpec) error {
 			}
 		}
 
-		switch n := sec.Name; {
-		case strings.HasPrefix(n, ".rodata"):
+		if strings.HasPrefix(sec.Name, ".rodata") {
 			mapSpec.Flags = unix.BPF_F_RDONLY_PROG
 			mapSpec.Freeze = true
-		case n == ".bss":
-			// The kernel already zero-initializes the map
-			mapSpec.Contents = nil
 		}
 
 		maps[sec.Name] = mapSpec
@@ -1107,6 +1109,7 @@ func getProgType(sectionName string) (ProgramType, AttachType, uint32, string) {
 		{"lsm/", LSM, AttachLSMMac, 0},
 		{"lsm.s/", LSM, AttachLSMMac, unix.BPF_F_SLEEPABLE},
 		{"iter/", Tracing, AttachTraceIter, 0},
+		{"iter.s/", Tracing, AttachTraceIter, unix.BPF_F_SLEEPABLE},
 		{"syscall", Syscall, AttachNone, 0},
 		{"xdp_devmap/", XDP, AttachXDPDevMap, 0},
 		{"xdp_cpumap/", XDP, AttachXDPCPUMap, 0},
@@ -1149,8 +1152,9 @@ func getProgType(sectionName string) (ProgramType, AttachType, uint32, string) {
 		{"cgroup/setsockopt", CGroupSockopt, AttachCGroupSetsockopt, 0},
 		{"struct_ops+", StructOps, AttachNone, 0},
 		{"sk_lookup/", SkLookup, AttachSkLookup, 0},
-
 		{"seccomp", SocketFilter, AttachNone, 0},
+		{"kprobe.multi", Kprobe, AttachTraceKprobeMulti, 0},
+		{"kretprobe.multi", Kprobe, AttachTraceKprobeMulti, 0},
 	}
 
 	for _, t := range types {

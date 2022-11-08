@@ -21,6 +21,7 @@ import (
 	_ "github.com/cilium/cilium/pkg/hubble/metrics/flows-to-world"    // invoke init
 	_ "github.com/cilium/cilium/pkg/hubble/metrics/http"              // invoke init
 	_ "github.com/cilium/cilium/pkg/hubble/metrics/icmp"              // invoke init
+	_ "github.com/cilium/cilium/pkg/hubble/metrics/kafka"             // invoke init
 	_ "github.com/cilium/cilium/pkg/hubble/metrics/policy"            // invoke init
 	_ "github.com/cilium/cilium/pkg/hubble/metrics/port-distribution" // invoke init
 	_ "github.com/cilium/cilium/pkg/hubble/metrics/tcp"               // invoke init
@@ -40,7 +41,7 @@ func ProcessFlow(ctx context.Context, flow *pb.Flow) error {
 }
 
 // initMetrics initialies the metrics system
-func initMetrics(address string, enabled api.Map, grpcMetrics *grpc_prometheus.ServerMetrics) (<-chan error, error) {
+func initMetrics(address string, enabled api.Map, grpcMetrics *grpc_prometheus.ServerMetrics, enableOpenMetrics bool) (<-chan error, error) {
 	e, err := api.DefaultRegistry().ConfigureHandlers(registry, enabled)
 	if err != nil {
 		return nil, err
@@ -53,7 +54,9 @@ func initMetrics(address string, enabled api.Map, grpcMetrics *grpc_prometheus.S
 
 	go func() {
 		mux := http.NewServeMux()
-		mux.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
+		mux.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{
+			EnableOpenMetrics: enableOpenMetrics,
+		}))
 		srv := http.Server{
 			Addr:    address,
 			Handler: mux,
@@ -66,8 +69,8 @@ func initMetrics(address string, enabled api.Map, grpcMetrics *grpc_prometheus.S
 
 // EnableMetrics starts the metrics server with a given list of metrics. This is the
 // function Cilium uses to configure Hubble metrics in embedded mode.
-func EnableMetrics(log logrus.FieldLogger, metricsServer string, m []string, grpcMetrics *grpc_prometheus.ServerMetrics) error {
-	errChan, err := initMetrics(metricsServer, api.ParseMetricList(m), grpcMetrics)
+func EnableMetrics(log logrus.FieldLogger, metricsServer string, m []string, grpcMetrics *grpc_prometheus.ServerMetrics, enableOpenMetrics bool) error {
+	errChan, err := initMetrics(metricsServer, api.ParseMetricList(m), grpcMetrics, enableOpenMetrics)
 	if err != nil {
 		return fmt.Errorf("unable to setup metrics: %v", err)
 	}

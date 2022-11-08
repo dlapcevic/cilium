@@ -34,6 +34,7 @@ import (
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/policy"
 	"github.com/cilium/cilium/pkg/policy/api"
+	"github.com/cilium/cilium/pkg/proxy/accesslog"
 	"github.com/cilium/cilium/pkg/spanstat"
 )
 
@@ -243,10 +244,10 @@ func (p *DNSProxy) GetRules(endpointID uint16) (restore.DNSRules, error) {
 func (p *DNSProxy) RestoreRules(ep *endpoint.Endpoint) {
 	p.Lock()
 	defer p.Unlock()
-	if ep.IPv4.IsSet() {
+	if ep.IPv4.IsValid() {
 		p.restoredEPs[ep.IPv4.String()] = ep
 	}
-	if ep.IPv6.IsSet() {
+	if ep.IPv6.IsValid() {
 		p.restoredEPs[ep.IPv6.String()] = ep
 	}
 	p.restored[uint64(ep.ID)] = ep.DNSRules
@@ -384,6 +385,15 @@ func (e ErrTimedOutAcquireSemaphore) Error() string {
 	)
 }
 
+// ErrDNSRequestNoEndpoint represents an error when the local daemon cannot
+// find the corresponding endpoint that triggered a DNS request processed by
+// the local DNS proxy (FQDN proxy).
+type ErrDNSRequestNoEndpoint struct{}
+
+func (ErrDNSRequestNoEndpoint) Error() string {
+	return "DNS request cannot be associated with an existing endpoint"
+}
+
 // ProxyRequestContext proxy dns request context struct to send in the callback
 type ProxyRequestContext struct {
 	ProcessingTime spanstat.SpanStat // This is going to happen at the end of the second callback.
@@ -394,6 +404,7 @@ type ProxyRequestContext struct {
 	DataplaneTime        spanstat.SpanStat
 	Success              bool
 	Err                  error
+	DataSource           accesslog.DNSDataSource
 }
 
 // IsTimeout return true if the ProxyRequest timeout
@@ -416,7 +427,14 @@ func (proxyStat *ProxyRequestContext) IsTimeout() bool {
 // notifyFunc will be called with DNS response data that is returned to a
 // requesting endpoint. Note that denied requests will not trigger this
 // callback.
-func StartDNSProxy(address string, port uint16, enableDNSCompression bool, maxRestoreDNSIPs int, lookupEPFunc LookupEndpointIDByIPFunc, lookupSecIDFunc LookupSecIDByIPFunc, lookupIPsFunc LookupIPsBySecIDFunc, notifyFunc NotifyOnDNSMsgFunc, concurrencyLimit int) (*DNSProxy, error) {
+func StartDNSProxy(
+	address string, port uint16, enableDNSCompression bool, maxRestoreDNSIPs int,
+	lookupEPFunc LookupEndpointIDByIPFunc,
+	lookupSecIDFunc LookupSecIDByIPFunc,
+	lookupIPsFunc LookupIPsBySecIDFunc,
+	notifyFunc NotifyOnDNSMsgFunc,
+	concurrencyLimit int, concurrencyGracePeriod time.Duration,
+) (*DNSProxy, error) {
 	if err := re.InitRegexCompileLRU(option.Config.FQDNRegexCompileLRUSize); err != nil {
 		return nil, fmt.Errorf("failed to start DNS proxy: %w", err)
 	}
@@ -445,7 +463,7 @@ func StartDNSProxy(address string, port uint16, enableDNSCompression bool, maxRe
 	}
 	if concurrencyLimit > 0 {
 		p.ConcurrencyLimit = semaphore.NewWeighted(int64(concurrencyLimit))
-		p.ConcurrencyGracePeriod = option.Config.DNSProxyConcurrencyProcessingGracePeriod
+		p.ConcurrencyGracePeriod = concurrencyGracePeriod
 	}
 	atomic.StoreInt32(&p.rejectReply, dns.RcodeRefused)
 
@@ -621,7 +639,7 @@ func (p *DNSProxy) ServeDNS(w dns.ResponseWriter, request *dns.Msg) {
 		logfields.DNSRequestID: requestID,
 	})
 
-	var stat ProxyRequestContext
+	stat := ProxyRequestContext{DataSource: accesslog.DNSSourceProxy}
 	if p.ConcurrencyLimit != nil {
 		// TODO: Consider plumbing the daemon context here.
 		ctx, cancel := context.WithTimeout(context.TODO(), p.ConcurrencyGracePeriod)

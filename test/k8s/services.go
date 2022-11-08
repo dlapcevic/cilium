@@ -32,7 +32,7 @@ const (
 
 // The 5.4 CI job is intended to catch BPF complexity regressions and as such
 // doesn't need to execute this test suite.
-var _ = SkipDescribeIf(helpers.RunsOn54Kernel, "K8sServicesTest", func() {
+var _ = SkipDescribeIf(helpers.RunsOn54Kernel, "K8sDatapathServicesTest", func() {
 	var (
 		kubectl        *helpers.Kubectl
 		ciliumFilename string
@@ -149,7 +149,7 @@ var _ = SkipDescribeIf(helpers.RunsOn54Kernel, "K8sServicesTest", func() {
 				testFailBind(kubectl, ni)
 			})
 
-			Context("with L7 policy", func() {
+			SkipContextIf(helpers.RunsOnAKS, "with L7 policy", func() {
 				AfterAll(func() {
 					kubectl.Delete(demoPolicyL7)
 					// Remove CT entries to avoid packet drops which could happen
@@ -219,7 +219,7 @@ var _ = SkipDescribeIf(helpers.RunsOn54Kernel, "K8sServicesTest", func() {
 			})
 		})
 
-		SkipContextIf(helpers.RunsWithKubeProxyReplacement, "TFTP with DNS Proxy port collision", func() {
+		SkipContextIf(func() bool { return helpers.RunsWithKubeProxyReplacement() || helpers.RunsOnAKS() }, "TFTP with DNS Proxy port collision", func() {
 			var (
 				demoPolicy    string
 				ciliumPodK8s1 string
@@ -313,7 +313,7 @@ var _ = SkipDescribeIf(helpers.RunsOn54Kernel, "K8sServicesTest", func() {
 		})
 
 		SkipContextIf(func() bool {
-			return helpers.RunsWithKubeProxyReplacement()
+			return helpers.RunsWithKubeProxyReplacement() || helpers.RunsOnAKS()
 		}, "with L7 policy", func() {
 			var demoPolicyL7 string
 
@@ -487,6 +487,17 @@ Secondary Interface %s :: IPv4: (%s, %s), IPv6: (%s, %s)`,
 				"loadBalancer.algorithm":    "random",
 				"tunnel":                    "disabled",
 				"autoDirectNodeRoutes":      "true",
+				"devices":                   fmt.Sprintf(`'{%s}'`, ni.PrivateIface),
+			})
+			testNodePortExternal(kubectl, ni, false, false, false)
+		})
+
+		It("Tests with XDP, vxlan tunnel, SNAT and Random", func() {
+			DeployCiliumOptionsAndDNS(kubectl, ciliumFilename, map[string]string{
+				"loadBalancer.acceleration": "testing-only",
+				"loadBalancer.mode":         "snat",
+				"loadBalancer.algorithm":    "random",
+				"tunnel":                    "vxlan",
 				"devices":                   fmt.Sprintf(`'{%s}'`, ni.PrivateIface),
 			})
 			testNodePortExternal(kubectl, ni, false, false, false)

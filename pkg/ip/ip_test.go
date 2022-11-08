@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
-//go:build !privileged_tests
-
 package ip
 
 import (
@@ -774,6 +772,119 @@ func (s *IPTestSuite) BenchmarkKeepUniqueIPs(c *C) {
 	}
 }
 
+func TestKeepUniqueAddrs(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		addrs []netip.Addr
+		want  []netip.Addr
+	}{
+		{
+			name:  "nil slice",
+			addrs: nil,
+			want:  nil,
+		},
+		{
+			name:  "empty slice",
+			addrs: []netip.Addr{},
+			want:  []netip.Addr{},
+		},
+		{
+			name:  "one element slice",
+			addrs: []netip.Addr{netip.MustParseAddr("1.1.1.1")},
+			want:  []netip.Addr{netip.MustParseAddr("1.1.1.1")},
+		},
+		{
+			name: "IPv4 all duplicates",
+			addrs: []netip.Addr{
+				netip.MustParseAddr("1.1.1.1"),
+				netip.MustParseAddr("1.1.1.1"),
+				netip.MustParseAddr("1.1.1.1"),
+			},
+			want: []netip.Addr{
+				netip.MustParseAddr("1.1.1.1"),
+			},
+		},
+		{
+			name: "IPv4 all unique",
+			addrs: []netip.Addr{
+				netip.MustParseAddr("1.1.1.1"),
+				netip.MustParseAddr("2.2.2.2"),
+				netip.MustParseAddr("3.3.3.3"),
+			},
+			want: []netip.Addr{
+				netip.MustParseAddr("1.1.1.1"),
+				netip.MustParseAddr("2.2.2.2"),
+				netip.MustParseAddr("3.3.3.3"),
+			},
+		},
+		{
+			name: "IPv4 mixed",
+			addrs: []netip.Addr{
+				netip.MustParseAddr("3.3.3.3"),
+				netip.MustParseAddr("1.1.1.1"),
+				netip.MustParseAddr("2.2.2.2"),
+				netip.MustParseAddr("2.2.2.2"),
+			},
+			want: []netip.Addr{
+				netip.MustParseAddr("1.1.1.1"),
+				netip.MustParseAddr("2.2.2.2"),
+				netip.MustParseAddr("3.3.3.3"),
+			},
+		},
+		{
+			name: "IPv6 all duplicates",
+			addrs: []netip.Addr{
+				netip.MustParseAddr("f00d::1"),
+				netip.MustParseAddr("f00d::1"),
+				netip.MustParseAddr("f00d::1"),
+			},
+			want: []netip.Addr{
+				netip.MustParseAddr("f00d::1"),
+			},
+		},
+		{
+			name: "Mixed IPv4 & IPv6",
+			addrs: []netip.Addr{
+				netip.MustParseAddr("::1"),
+				netip.MustParseAddr("f00d::1"),
+				netip.MustParseAddr("1.1.1.1"),
+				netip.MustParseAddr("f00d::1"),
+			},
+			want: []netip.Addr{
+				netip.MustParseAddr("1.1.1.1"),
+				netip.MustParseAddr("::1"),
+				netip.MustParseAddr("f00d::1"),
+			},
+		},
+		{
+			name: "With IPv6-in-IPv6",
+			addrs: []netip.Addr{
+				netip.MustParseAddr("::ffff:0101:0101"),
+				netip.MustParseAddr("::ffff:1.1.1.1"),
+				netip.MustParseAddr("1.1.1.1"),
+			},
+			want: []netip.Addr{
+				netip.MustParseAddr("1.1.1.1"),
+				netip.MustParseAddr("::ffff:1.1.1.1"),
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := KeepUniqueAddrs(tc.addrs)
+			if len(tc.want) != len(got) {
+				t.Errorf("%s: KeepUniqueAddrs(%q): got %d unique addresses, want %d",
+					tc.name, tc.addrs, len(got), len(tc.want))
+			}
+			for i := range got {
+				if tc.want[i] != got[i] {
+					t.Errorf("%s: KeepUniqueAddrs(%q): mismatching address at index %d: got %v, want %v",
+						tc.name, tc.addrs, i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
 func (s *IPTestSuite) TestIPVersion(c *C) {
 	type args struct {
 		ip net.IP
@@ -950,4 +1061,36 @@ func (s *IPTestSuite) TestAddrFromIP(c *C) {
 			c.Errorf("AddrFromIP(net.IP(%v)) = %v want %v", []byte(tt.ip), addr, tt.wantAddr)
 		}
 	}
+}
+
+func (s *IPTestSuite) TestMustAddrsFromIPs(c *C) {
+	type args struct {
+		ips   []net.IP
+		addrs []netip.Addr
+	}
+	for _, tt := range []args{
+		{
+			ips:   []net.IP{},
+			addrs: []netip.Addr{},
+		},
+		{
+			ips:   []net.IP{net.ParseIP("1.1.1.1")},
+			addrs: []netip.Addr{netip.MustParseAddr("1.1.1.1")},
+		},
+		{
+			ips:   []net.IP{net.ParseIP("1.1.1.1"), net.ParseIP("2.2.2.2"), net.ParseIP("0.0.0.0")},
+			addrs: []netip.Addr{netip.MustParseAddr("1.1.1.1"), netip.MustParseAddr("2.2.2.2"), netip.MustParseAddr("0.0.0.0")},
+		},
+	} {
+		addrs := MustAddrsFromIPs(tt.ips)
+		c.Assert(addrs, checker.DeepEquals, tt.addrs)
+	}
+
+	nilIPs := []net.IP{nil}
+	defer func() {
+		if r := recover(); r == nil {
+			c.Errorf("MustAddrsFromIPs(%v) should panic", nilIPs)
+		}
+	}()
+	_ = MustAddrsFromIPs(nilIPs)
 }

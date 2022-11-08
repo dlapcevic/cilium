@@ -33,7 +33,7 @@ The documentation is divided into the following sections:
 * :ref:`dev_guide` : Gives background to those looking to develop and contribute
   modifications to the Cilium code or documentation.
 
-A `hands-on tutorial <https://play.instruqt.com/isovalent/invite/j4maqox5r1h5>`_ 
+A `hands-on tutorial <https://cilium.io/enterprise/#trainings>`_
 in a live environment is also available for users looking for a way to quickly
 get started and experiment with Cilium.
 
@@ -67,8 +67,6 @@ get started and experiment with Cilium.
    installation/k8s-install-helm
    installation/k8s-toc
    installation/external-toc
-   installation/provider-toc
-   installation/microk8s
 
 .. toctree::
    :maxdepth: 2

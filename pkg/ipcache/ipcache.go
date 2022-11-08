@@ -4,8 +4,10 @@
 package ipcache
 
 import (
+	"context"
 	"net"
 	"net/netip"
+	"time"
 
 	"github.com/sirupsen/logrus"
 
@@ -55,6 +57,7 @@ type K8sMetadata struct {
 
 // Configuration is init-time configuration for the IPCache.
 type Configuration struct {
+	context.Context
 	// Accessors to other subsystems, provided by the daemon
 	cache.IdentityAllocator
 	ipcacheTypes.PolicyHandler
@@ -100,12 +103,17 @@ type IPCache struct {
 
 	// metadata is the ipcache identity metadata map, which maps IPs to labels.
 	metadata *metadata
+
+	// deferredPrefixRelease is a queue for garbage collecting old
+	// references to identities and removing the corresponding IPCache
+	// entries if unused.
+	deferredPrefixRelease *asyncPrefixReleaser
 }
 
 // NewIPCache returns a new IPCache with the mappings of endpoint IP to security
 // identity (and vice-versa) initialized.
 func NewIPCache(c *Configuration) *IPCache {
-	return &IPCache{
+	ipc := &IPCache{
 		mutex:             lock.NewSemaphoredMutex(),
 		ipToIdentityCache: map[string]Identity{},
 		identityToIPCache: map[identity.NumericIdentity]map[string]struct{}{},
@@ -116,6 +124,18 @@ func NewIPCache(c *Configuration) *IPCache {
 		metadata:          newMetadata(),
 		Configuration:     c,
 	}
+	ctx := context.Background()
+	if c != nil && c.Context != nil {
+		ctx = c.Context
+	}
+	ipc.deferredPrefixRelease = newAsyncPrefixReleaser(ctx, ipc, 1*time.Millisecond)
+	return ipc
+}
+
+// Shutdown cleans up asynchronous routines associated with the IPCache.
+func (ipc *IPCache) Shutdown() error {
+	ipc.deferredPrefixRelease.Shutdown()
+	return ipc.ShutdownLabelInjection()
 }
 
 // Lock locks the IPCache's mutex.

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
-//go:build !privileged_tests
-
 package ipam
 
 import (
@@ -62,12 +60,6 @@ func newK8sMock() *k8sMock {
 	return &k8sMock{
 		latestCiliumNode: map[string]*v2.CiliumNode{},
 	}
-}
-
-func (k *k8sMock) specRevision() int {
-	k.mutex.RLock()
-	defer k.mutex.RUnlock()
-	return k.specRev
 }
 
 func (k *k8sMock) Create(node *v2.CiliumNode) (*v2.CiliumNode, error) {

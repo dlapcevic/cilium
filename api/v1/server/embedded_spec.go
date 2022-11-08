@@ -3088,6 +3088,15 @@ func init() {
                   "type": "boolean"
                 }
               }
+            },
+            "socketLBTracing": {
+              "description": "\n\n+k8s:deepcopy-gen=true",
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                }
+              }
             }
           }
         },
@@ -3987,6 +3996,10 @@ func init() {
         "cni-chaining": {
           "description": "Status of CNI chaining",
           "$ref": "#/definitions/CNIChainingStatus"
+        },
+        "cni-file": {
+          "description": "Status of the CNI configuration file",
+          "$ref": "#/definitions/Status"
         },
         "container-runtime": {
           "description": "Status of local container runtime",
@@ -7683,6 +7696,15 @@ func init() {
                   "type": "boolean"
                 }
               }
+            },
+            "socketLBTracing": {
+              "description": "\n\n+k8s:deepcopy-gen=true",
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                }
+              }
             }
           }
         },
@@ -7826,6 +7848,15 @@ func init() {
               "type": "boolean"
             }
           }
+        },
+        "socketLBTracing": {
+          "description": "\n\n+k8s:deepcopy-gen=true",
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          }
         }
       }
     },
@@ -7931,6 +7962,15 @@ func init() {
       }
     },
     "KubeProxyReplacementFeaturesSocketLB": {
+      "description": "\n\n+k8s:deepcopy-gen=true",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "KubeProxyReplacementFeaturesSocketLBTracing": {
       "description": "\n\n+k8s:deepcopy-gen=true",
       "type": "object",
       "properties": {
@@ -8886,6 +8926,10 @@ func init() {
         "cni-chaining": {
           "description": "Status of CNI chaining",
           "$ref": "#/definitions/CNIChainingStatus"
+        },
+        "cni-file": {
+          "description": "Status of the CNI configuration file",
+          "$ref": "#/definitions/Status"
         },
         "container-runtime": {
           "description": "Status of local container runtime",

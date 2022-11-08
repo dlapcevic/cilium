@@ -23,6 +23,7 @@ import (
 
 	"github.com/cilium/cilium/pkg/annotation"
 	"github.com/cilium/cilium/pkg/bandwidth"
+	cmtypes "github.com/cilium/cilium/pkg/clustermesh/types"
 	"github.com/cilium/cilium/pkg/comparator"
 	"github.com/cilium/cilium/pkg/controller"
 	"github.com/cilium/cilium/pkg/endpoint"
@@ -30,6 +31,7 @@ import (
 	"github.com/cilium/cilium/pkg/identity"
 	"github.com/cilium/cilium/pkg/ipcache"
 	"github.com/cilium/cilium/pkg/k8s"
+	"github.com/cilium/cilium/pkg/k8s/client"
 	"github.com/cilium/cilium/pkg/k8s/informer"
 	slim_corev1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/core/v1"
 	slim_metav1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/apis/meta/v1"
@@ -47,6 +49,7 @@ import (
 	nodeTypes "github.com/cilium/cilium/pkg/node/types"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/policy"
+	"github.com/cilium/cilium/pkg/service"
 	"github.com/cilium/cilium/pkg/source"
 	"github.com/cilium/cilium/pkg/u8proto"
 )
@@ -228,6 +231,8 @@ func (k *K8sWatcher) addK8sPodV1(pod *slim_corev1.Pod) error {
 		}
 	}
 
+	k.cgroupManager.OnAddPod(pod)
+
 	if err != nil {
 		logger.WithError(err).Warning("Unable to update ipcache map entry on pod add")
 		return err
@@ -262,10 +267,13 @@ func (k *K8sWatcher) updateK8sPodV1(oldK8sPod, newK8sPod *slim_corev1.Pod) error
 		return k.deleteK8sPodV1(newK8sPod)
 	}
 
-	if newK8sPod.Spec.HostNetwork && !option.Config.EnableLocalRedirectPolicy {
+	if newK8sPod.Spec.HostNetwork && !option.Config.EnableLocalRedirectPolicy &&
+		!option.Config.EnableSocketLBTracing {
 		logger.Debug("Skip pod event using host networking")
 		return nil
 	}
+
+	k.cgroupManager.OnUpdatePod(oldK8sPod, newK8sPod)
 
 	oldPodIPs := k8sUtils.ValidIPs(oldK8sPod.Status)
 	newPodIPs := k8sUtils.ValidIPs(newK8sPod.Status)
@@ -335,7 +343,7 @@ func (k *K8sWatcher) updateK8sPodV1(oldK8sPod, newK8sPod *slim_corev1.Pod) error
 		}
 
 		// Synchronize Pod labels with CiliumEndpoint labels if there is a change.
-		updateCiliumEndpointLabels(podEP, newPodLabels)
+		updateCiliumEndpointLabels(k.clientset, podEP, newPodLabels)
 	}
 
 	if annotationsChanged {
@@ -387,7 +395,7 @@ func realizePodAnnotationUpdate(podEP *endpoint.Endpoint) {
 
 // updateCiliumEndpointLabels runs a controller associated with the endpoint that updates
 // the Labels in CiliumEndpoint object by mirroring those of the associated Pod.
-func updateCiliumEndpointLabels(ep *endpoint.Endpoint, labels map[string]string) {
+func updateCiliumEndpointLabels(clientset client.Clientset, ep *endpoint.Endpoint, labels map[string]string) {
 	var (
 		controllerName = fmt.Sprintf("sync-pod-labels-with-cilium-endpoint (%v)", ep.GetID())
 		scopedLog      = log.WithField("controller", controllerName)
@@ -407,7 +415,7 @@ func updateCiliumEndpointLabels(ep *endpoint.Endpoint, labels map[string]string)
 					}).Debug(err)
 					return err
 				}
-				ciliumClient := k8s.CiliumClient().CiliumV2()
+				ciliumClient := clientset.CiliumV2()
 
 				replaceLabels := []k8s.JSONPatch{
 					{
@@ -459,6 +467,7 @@ func (k *K8sWatcher) deleteK8sPodV1(pod *slim_corev1.Pod) error {
 	if option.Config.EnableLocalRedirectPolicy {
 		k.redirectPolicyManager.OnDeletePod(pod)
 	}
+	k.cgroupManager.OnDeletePod(pod)
 
 	skipped, err := k.deletePodHostData(pod)
 	switch {
@@ -510,14 +519,14 @@ func (k *K8sWatcher) genServiceMappings(pod *slim_corev1.Pod, podIPs []string, l
 			for _, podIP := range podIPs {
 				be := loadbalancer.Backend{
 					L3n4Addr: loadbalancer.L3n4Addr{
-						IP: net.ParseIP(podIP),
+						AddrCluster: cmtypes.MustParseAddrCluster(podIP),
 						L4Addr: loadbalancer.L4Addr{
 							Protocol: proto,
 							Port:     uint16(p.ContainerPort),
 						},
 					},
 				}
-				if be.L3n4Addr.IP.To4() != nil {
+				if be.L3n4Addr.AddrCluster.Is4() {
 					bes4 = append(bes4, &be)
 				} else {
 					bes6 = append(bes6, &be)
@@ -544,7 +553,7 @@ func (k *K8sWatcher) genServiceMappings(pod *slim_corev1.Pod, podIPs []string, l
 				for _, ip := range addrs {
 					fe := loadbalancer.L3n4AddrID{
 						L3n4Addr: loadbalancer.L3n4Addr{
-							IP: ip,
+							AddrCluster: cmtypes.MustParseAddrCluster(ip.String()),
 							L4Addr: loadbalancer.L4Addr{
 								Protocol: proto,
 								Port:     uint16(p.HostPort),
@@ -649,7 +658,11 @@ func (k *K8sWatcher) upsertHostPortMapping(oldPod, newPod *slim_corev1.Pod, oldP
 		}
 
 		if _, _, err := k.svcManager.UpsertService(p); err != nil {
-			logger.WithError(err).Error("Error while inserting service in LB map")
+			if errors.Is(err, service.NewErrLocalRedirectServiceExists(p.Frontend, p.Name)) {
+				logger.WithError(err).Debug("Error while inserting service in LB map")
+			} else {
+				logger.WithError(err).Error("Error while inserting service in LB map")
+			}
 			return err
 		}
 	}

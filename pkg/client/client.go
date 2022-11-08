@@ -315,6 +315,10 @@ func FormatStatusResponse(w io.Writer, sr *models.StatusResponse, sd StatusDetai
 		fmt.Fprintf(w, "CNI Chaining:\t%s\n", sr.CniChaining.Mode)
 	}
 
+	if sr.CniFile != nil {
+		fmt.Fprintf(w, "CNI Config file:\t%s\n", sr.CniFile.Msg)
+	}
+
 	if sr.Cilium != nil {
 		fmt.Fprintf(w, "Cilium:\t%s   %s\n", sr.Cilium.State, sr.Cilium.Msg)
 	}
@@ -598,6 +602,10 @@ func FormatStatusResponse(w io.Writer, sr *models.StatusResponse, sd StatusDetai
 		if hs := sr.KubeProxyReplacement.Features.HostReachableServices; hs.Enabled {
 			protocols = strings.Join(hs.Protocols, ", ")
 		}
+		socketLBTracing := "Disabled"
+		if st := sr.KubeProxyReplacement.Features.SocketLBTracing; st.Enabled {
+			socketLBTracing = "Enabled"
+		}
 
 		gracefulTerm := "Disabled"
 		if sr.KubeProxyReplacement.Features.GracefulTermination.Enabled {
@@ -616,6 +624,7 @@ func FormatStatusResponse(w io.Writer, sr *models.StatusResponse, sd StatusDetai
 		if protocols != "" {
 			fmt.Fprintf(tab, "  Socket LB Protocols:\t%s\n", protocols)
 		}
+		fmt.Fprintf(tab, "  Socket LB Tracing:\t%s\n", socketLBTracing)
 		if kubeProxyDevices != "" {
 			fmt.Fprintf(tab, "  Devices:\t%s\n", kubeProxyDevices)
 		}

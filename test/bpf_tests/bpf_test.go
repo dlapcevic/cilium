@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
-//go:build privileged_tests
-
 //go:generate protoc --go_out=. trf.proto
 package bpftests
 
@@ -52,7 +50,7 @@ var (
 
 func TestBPF(t *testing.T) {
 	if testPath == nil || *testPath == "" {
-		t.Fatal("-bpf-test-path is a required flag")
+		t.Skip("Set -bpf-test-path to run BPF tests")
 	}
 
 	entries, err := os.ReadDir(*testPath)
@@ -453,17 +451,6 @@ func subTest(progSet programSet, resultMap *ebpf.Map) func(t *testing.T) {
 			t.SkipNow()
 		}
 	}
-}
-
-type suiteTestResult struct {
-	name string
-	logs []testLog
-	code byte
-}
-
-type testLog struct {
-	fmt  string
-	args []uint64
 }
 
 // A simplified version of fmt.Printf logic, the meaning of % specifiers changed to match the kernels printk specifiers.

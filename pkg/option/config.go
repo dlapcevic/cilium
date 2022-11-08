@@ -129,9 +129,6 @@ const (
 	// running BPF loadbalancer program
 	LBDevInheritIPAddr = "bpf-lb-dev-ip-addr-inherit"
 
-	// DisableConntrack disables connection tracking
-	DisableConntrack = "disable-conntrack"
-
 	// DisableEnvoyVersionCheck do not perform Envoy binary version check on startup
 	DisableEnvoyVersionCheck = "disable-envoy-version-check"
 
@@ -493,6 +490,9 @@ const (
 	// EnableSocketLB is the name for the option to enable the socket LB
 	EnableSocketLB = "bpf-lb-sock"
 
+	// EnableSocketLBTracing is the name for the option to enable the socket LB tracing
+	EnableSocketLBTracing = "trace-sock"
+
 	// EnableHostReachableServices is the name of the EnableHostReachableServices option
 	EnableHostReachableServices = "enable-host-reachable-services"
 
@@ -679,6 +679,9 @@ const (
 	// EnableSCTPName is the name of the option to enable SCTP support
 	EnableSCTPName = "enable-sctp"
 
+	// EnableStatelessNat46X64 enables L3 based NAT46 and NAT64 translation
+	EnableStatelessNat46X64 = "enable-stateless-nat46x64"
+
 	// IPv6MCastDevice is the name of the option to select IPv6 multicast device
 	IPv6MCastDevice = "ipv6-mcast-device"
 
@@ -777,10 +780,6 @@ const (
 	// endpoints that are no longer alive and healthy.
 	EndpointGCInterval = "endpoint-gc-interval"
 
-	// SelectiveRegeneration specifies whether only the endpoints which policy
-	// changes select should be regenerated upon policy changes.
-	SelectiveRegeneration = "enable-selective-regeneration"
-
 	// K8sEventHandover is the name of the K8sEventHandover option
 	K8sEventHandover = "enable-k8s-event-handover"
 
@@ -796,10 +795,6 @@ const (
 
 	// LocalRouterIPv6 is the link-local IPv6 address to use for Cilium router device
 	LocalRouterIPv6 = "local-router-ipv6"
-
-	// EndpointInterfaceNamePrefix is the prefix name of the interface
-	// names shared by all endpoints
-	EndpointInterfaceNamePrefix = "endpoint-interface-name-prefix"
 
 	// ForceLocalPolicyEvalAtSource forces a policy decision at the source
 	// endpoint for all local communication
@@ -911,6 +906,10 @@ const (
 	// HubbleListenAddress specifies address for Hubble server to listen to.
 	HubbleListenAddress = "hubble-listen-address"
 
+	// HubblePreferIpv6 controls whether IPv6 or IPv4 addresses should be preferred for
+	// communication to agents, if both are available.
+	HubblePreferIpv6 = "hubble-prefer-ipv6"
+
 	// HubbleTLSDisabled allows the Hubble server to run on the given listen
 	// address without TLS.
 	HubbleTLSDisabled = "hubble-disable-tls"
@@ -956,6 +955,9 @@ const (
 
 	// EnableHubbleRecorderAPI specifies if the Hubble Recorder API should be served
 	EnableHubbleRecorderAPI = "enable-hubble-recorder-api"
+
+	// EnableHubbleOpenMetrics enables exporting hubble metrics in OpenMetrics format.
+	EnableHubbleOpenMetrics = "enable-hubble-open-metrics"
 
 	// HubbleRecorderStoragePath specifies the directory in which pcap files
 	// created via the Hubble Recorder API are stored
@@ -1099,6 +1101,10 @@ const (
 	// EnableRuntimeDeviceDetection is the name of the option to enable detection
 	// of new and removed datapath devices during the agent runtime.
 	EnableRuntimeDeviceDetection = "enable-runtime-device-detection"
+
+	// EnablePMTUDiscovery enables path MTU discovery to send ICMP
+	// fragmentation-needed replies to the client (when needed).
+	EnablePMTUDiscovery = "enable-pmtu-discovery"
 )
 
 // Default string arguments
@@ -1169,6 +1175,13 @@ const (
 	// allows to keep a Kubernetes node NotReady until Cilium is up and
 	// running and able to schedule endpoints.
 	WriteCNIConfigurationWhenReady = "write-cni-conf-when-ready"
+
+	// CNIExclusive tells the agent to remove other CNI configuration files
+	CNIExclusive = "cni-exclusive"
+
+	// CNILogFile is the path to a log file (on the host) for the CNI plugin
+	// binary to use for logging.
+	CNILogFile = "cni-log-file"
 
 	// EnableCiliumEndpointSlice enables the cilium endpoint slicing feature.
 	EnableCiliumEndpointSlice = "enable-cilium-endpoint-slice"
@@ -1538,6 +1551,9 @@ type DaemonConfig struct {
 	// EnableIPv6 is true when IPv6 is enabled
 	EnableIPv6 bool
 
+	// EnableStatelessNat46X64 is true when L3 based NAT46 and NAT64 translation is enabled
+	EnableStatelessNat46X64 bool
+
 	// EnableIPv6NDP is true when NDP is enabled for IPv6
 	EnableIPv6NDP bool
 
@@ -1586,6 +1602,7 @@ type DaemonConfig struct {
 	Debug                         bool
 	DebugVerbose                  []string
 	EnableSocketLB                bool
+	EnableSocketLBTracing         bool
 	EnableHostServicesTCP         bool
 	EnableHostServicesUDP         bool
 	EnableHostServicesPeer        bool
@@ -1600,10 +1617,6 @@ type DaemonConfig struct {
 	IPv6Range                     string
 	IPv4ServiceRange              string
 	IPv6ServiceRange              string
-	K8sAPIServer                  string
-	K8sKubeConfigPath             string
-	K8sClientBurst                int
-	K8sClientQPSLimit             float64
 	K8sSyncTimeout                time.Duration
 	AllocatorListTimeout          time.Duration
 	K8sWatcherEndpointSelector    string
@@ -1777,13 +1790,6 @@ type DaemonConfig struct {
 	// endpoints that are no longer alive and healthy.
 	EndpointGCInterval time.Duration
 
-	// SelectiveRegeneration, when true, enables the functionality to only
-	// regenerate endpoints which are selected by the policy rules that have
-	// been changed (added, deleted, or updated). If false, then all endpoints
-	// are regenerated upon every policy change regardless of the scope of the
-	// policy change.
-	SelectiveRegeneration bool
-
 	// ConntrackGCInterval is the connection tracking garbage collection
 	// interval
 	ConntrackGCInterval time.Duration
@@ -1830,6 +1836,13 @@ type DaemonConfig struct {
 	// running and able to schedule endpoints.
 	WriteCNIConfigurationWhenReady string
 
+	// CNIExclusive, if true, directs the agent to remove all other CNI configuration files
+	CNIExclusive bool
+
+	// CNILogFile is a path on disk (on the host) for the CNI plugin binary to use
+	// for logging.
+	CNILogFile string
+
 	// EnableNodePort enables k8s NodePort service implementation in BPF
 	EnableNodePort bool
 
@@ -1873,9 +1886,9 @@ type DaemonConfig struct {
 	LoadBalancerRSSv6CIDR string
 	LoadBalancerRSSv6     net.IPNet
 
-	// LoadBalancerPMTUDiscovery indicates whether LB should reply with ICMP
-	// frag needed messages to client (when needed)
-	LoadBalancerPMTUDiscovery bool
+	// EnablePMTUDiscovery indicates whether to send ICMP fragmentation-needed
+	// replies to the client (when needed).
+	EnablePMTUDiscovery bool
 
 	// Maglev backend table size (M) per service. Must be prime number.
 	MaglevTableSize int
@@ -2033,6 +2046,10 @@ type DaemonConfig struct {
 	// HubbleListenAddress specifies address for Hubble to listen to.
 	HubbleListenAddress string
 
+	// HubblePreferIpv6 controls whether IPv6 or IPv4 addresses should be preferred for
+	// communication to agents, if both are available.
+	HubblePreferIpv6 bool
+
 	// HubbleTLSDisabled allows the Hubble server to run on the given listen
 	// address without TLS.
 	HubbleTLSDisabled bool
@@ -2079,15 +2096,15 @@ type DaemonConfig struct {
 	// EnableHubbleRecorderAPI specifies if the Hubble Recorder API should be served
 	EnableHubbleRecorderAPI bool
 
+	// EnableHubbleOpenMetrics enables exporting hubble metrics in OpenMetrics format.
+	EnableHubbleOpenMetrics bool
+
 	// HubbleRecorderStoragePath specifies the directory in which pcap files
 	// created via the Hubble Recorder API are stored
 	HubbleRecorderStoragePath string
 
 	// HubbleRecorderSinkQueueSize is the queue size for each recorder sink
 	HubbleRecorderSinkQueueSize int
-
-	// K8sHeartbeatTimeout configures the timeout for apiserver heartbeat
-	K8sHeartbeatTimeout time.Duration
 
 	// EndpointStatus enables population of information in the
 	// CiliumEndpoint.Status resource
@@ -2119,8 +2136,6 @@ type DaemonConfig struct {
 	// SizeofSockRevElement is the size of an element (key + value) in the neigh
 	// map.
 	SizeofSockRevElement int
-
-	K8sEnableAPIDiscovery bool
 
 	// k8sEnableLeasesFallbackDiscovery enables k8s to fallback to API probing to check
 	// for the support of Leases in Kubernetes when there is an error in discovering
@@ -2272,7 +2287,6 @@ var (
 		FixedIdentityMapping:         make(map[string]string),
 		KVStoreOpt:                   make(map[string]string),
 		LogOpt:                       make(map[string]string),
-		SelectiveRegeneration:        defaults.SelectiveRegeneration,
 		LoopbackIPv4:                 defaults.LoopbackIPv4,
 		ForceLocalPolicyEvalAtSource: defaults.ForceLocalPolicyEvalAtSource,
 		EnableEndpointRoutes:         defaults.EnableEndpointRoutes,
@@ -2283,7 +2297,6 @@ var (
 		AllowICMPFragNeeded:          defaults.AllowICMPFragNeeded,
 		EnableWellKnownIdentities:    defaults.EnableWellKnownIdentities,
 		K8sEnableK8sEndpointSlice:    defaults.K8sEnableEndpointSlice,
-		K8sEnableAPIDiscovery:        defaults.K8sEnableAPIDiscovery,
 		AllocatorListTimeout:         defaults.AllocatorListTimeout,
 		EnableICMPRules:              defaults.EnableICMPRules,
 
@@ -2526,22 +2539,9 @@ func (c *DaemonConfig) AgentNotReadyNodeTaintValue() string {
 	}
 }
 
-// K8sAPIDiscoveryEnabled returns true if API discovery of API groups and
-// resources is enabled
-func (c *DaemonConfig) K8sAPIDiscoveryEnabled() bool {
-	return c.K8sEnableAPIDiscovery
-}
-
 // K8sIngressControllerEnabled returns true if ingress controller feature is enabled in Cilium
 func (c *DaemonConfig) K8sIngressControllerEnabled() bool {
 	return c.EnableIngressController
-}
-
-// K8sLeasesFallbackDiscoveryEnabled returns true if we should fallback to direct API
-// probing when checking for support of Leases in case Discovery API fails to discover
-// required groups.
-func (c *DaemonConfig) K8sLeasesFallbackDiscoveryEnabled() bool {
-	return c.K8sEnableAPIDiscovery
 }
 
 // DirectRoutingDeviceRequired return whether the Direct Routing Device is needed under
@@ -2551,12 +2551,6 @@ func (c *DaemonConfig) DirectRoutingDeviceRequired() bool {
 	// When tunneling is enabled, node-to-node redirection will be done by tunneling.
 	BPFHostRoutingEnabled := !c.EnableHostLegacyRouting
 	return (c.EnableNodePort || BPFHostRoutingEnabled) && !c.TunnelingEnabled()
-}
-
-// EnableK8sLeasesFallbackDiscovery enables using direct API probing as a fallback to check
-// for the support of Leases when discovering API groups is not possible.
-func (c *DaemonConfig) EnableK8sLeasesFallbackDiscovery() {
-	c.K8sEnableAPIDiscovery = true
 }
 
 func (c *DaemonConfig) validateIPv6ClusterAllocCIDR() error {
@@ -2650,10 +2644,6 @@ func (c *DaemonConfig) Validate(vp *viper.Viper) error {
 		return fmt.Errorf("KVstoreLeaseTTL does not lie in required range(%ds, %ds)",
 			int64(defaults.LockLeaseTTL.Seconds()),
 			int64(defaults.KVstoreLeaseMaxTTL.Seconds()))
-	}
-
-	if c.WriteCNIConfigurationWhenReady != "" && c.ReadCNIConfiguration == "" {
-		return fmt.Errorf("%s must be set when using %s", ReadCNIConfiguration, WriteCNIConfigurationWhenReady)
 	}
 
 	if c.EnableSocketLB && !c.EnableHostServicesUDP && !c.EnableHostServicesTCP {
@@ -2809,8 +2799,8 @@ func (c *DaemonConfig) Populate(vp *viper.Viper) {
 	c.EgressMasqueradeInterfaces = vp.GetString(EgressMasqueradeInterfaces)
 	c.BPFSocketLBHostnsOnly = vp.GetBool(BPFSocketLBHostnsOnly)
 	c.EnableSocketLB = vp.GetBool(EnableHostReachableServices) || vp.GetBool(EnableSocketLB)
+	c.EnableSocketLBTracing = vp.GetBool(EnableSocketLBTracing)
 	c.EnableRemoteNodeIdentity = vp.GetBool(EnableRemoteNodeIdentity)
-	c.K8sHeartbeatTimeout = vp.GetDuration(K8sHeartbeatTimeout)
 	c.EnableBPFTProxy = vp.GetBool(EnableBPFTProxy)
 	c.EnableXTSocketFallback = vp.GetBool(EnableXTSocketFallbackName)
 	c.EnableAutoDirectRouting = vp.GetBool(EnableAutoDirectRoutingName)
@@ -2863,12 +2853,7 @@ func (c *DaemonConfig) Populate(vp *viper.Viper) {
 	c.IPv6Range = vp.GetString(IPv6Range)
 	c.IPv6ServiceRange = vp.GetString(IPv6ServiceRange)
 	c.JoinCluster = vp.GetBool(JoinClusterName)
-	c.K8sAPIServer = vp.GetString(K8sAPIServer)
-	c.K8sClientBurst = vp.GetInt(K8sClientBurst)
-	c.K8sClientQPSLimit = vp.GetFloat64(K8sClientQPSLimit)
 	c.K8sEnableK8sEndpointSlice = vp.GetBool(K8sEnableEndpointSlice)
-	c.K8sEnableAPIDiscovery = vp.GetBool(K8sEnableAPIDiscovery)
-	c.K8sKubeConfigPath = vp.GetString(K8sKubeConfigPath)
 	c.K8sRequireIPv4PodCIDR = vp.GetBool(K8sRequireIPv4PodCIDRName)
 	c.K8sRequireIPv6PodCIDR = vp.GetBool(K8sRequireIPv6PodCIDRName)
 	c.K8sServiceCacheSize = uint(vp.GetInt(K8sServiceCacheSize))
@@ -2932,6 +2917,8 @@ func (c *DaemonConfig) Populate(vp *viper.Viper) {
 	c.TracePayloadlen = vp.GetInt(TracePayloadlen)
 	c.Version = vp.GetString(Version)
 	c.WriteCNIConfigurationWhenReady = vp.GetString(WriteCNIConfigurationWhenReady)
+	c.CNIExclusive = vp.GetBool(CNIExclusive)
+	c.CNILogFile = vp.GetString(CNILogFile)
 	c.PolicyTriggerInterval = vp.GetDuration(PolicyTriggerInterval)
 	c.CTMapEntriesTimeoutTCP = vp.GetDuration(CTMapEntriesTimeoutTCPName)
 	c.CTMapEntriesTimeoutAny = vp.GetDuration(CTMapEntriesTimeoutAnyName)
@@ -2955,11 +2942,12 @@ func (c *DaemonConfig) Populate(vp *viper.Viper) {
 	c.BGPAnnouncePodCIDR = vp.GetBool(BGPAnnouncePodCIDR)
 	c.BGPConfigPath = vp.GetString(BGPConfigPath)
 	c.ExternalClusterIP = vp.GetBool(ExternalClusterIPName)
-
+	c.EnableStatelessNat46X64 = vp.GetBool(EnableStatelessNat46X64)
 	c.EnableIPv4Masquerade = vp.GetBool(EnableIPv4Masquerade) && c.EnableIPv4
 	c.EnableIPv6Masquerade = vp.GetBool(EnableIPv6Masquerade) && c.EnableIPv6
 	c.EnableBPFMasquerade = vp.GetBool(EnableBPFMasquerade)
 	c.DeriveMasqIPAddrFromDevice = vp.GetString(DeriveMasqIPAddrFromDevice)
+	c.EnablePMTUDiscovery = vp.GetBool(EnablePMTUDiscovery)
 
 	c.populateLoadBalancerSettings(vp)
 	c.populateDevices(vp)
@@ -3004,6 +2992,13 @@ func (c *DaemonConfig) Populate(vp *viper.Viper) {
 		}
 	} else {
 		c.AddressScopeMax = defaults.AddressScopeMax
+	}
+
+	if c.EnableStatelessNat46X64 {
+		if !c.EnableIPv4 || !c.EnableIPv6 {
+			log.Fatalf("--%s requires both --%s and --%s enabled",
+				EnableStatelessNat46X64, EnableIPv4Name, EnableIPv6Name)
+		}
 	}
 
 	ipv4NativeRoutingCIDR := vp.GetString(IPv4NativeRoutingCIDR)
@@ -3208,8 +3203,10 @@ func (c *DaemonConfig) Populate(vp *viper.Viper) {
 
 	// Hubble options.
 	c.EnableHubble = vp.GetBool(EnableHubble)
+	c.EnableHubbleOpenMetrics = vp.GetBool(EnableHubbleOpenMetrics)
 	c.HubbleSocketPath = vp.GetString(HubbleSocketPath)
 	c.HubbleListenAddress = vp.GetString(HubbleListenAddress)
+	c.HubblePreferIpv6 = vp.GetBool(HubblePreferIpv6)
 	c.HubbleTLSDisabled = vp.GetBool(HubbleTLSDisabled)
 	c.HubbleTLSCertFile = vp.GetString(HubbleTLSCertFile)
 	c.HubbleTLSKeyFile = vp.GetString(HubbleTLSKeyFile)
@@ -3241,7 +3238,6 @@ func (c *DaemonConfig) Populate(vp *viper.Viper) {
 	c.PolicyQueueSize = sanitizeIntParam(vp, PolicyQueueSize, defaults.PolicyQueueSize)
 	c.EndpointQueueSize = sanitizeIntParam(vp, EndpointQueueSize, defaults.EndpointQueueSize)
 	c.EndpointGCInterval = vp.GetDuration(EndpointGCInterval)
-	c.SelectiveRegeneration = vp.GetBool(SelectiveRegeneration)
 	c.DisableCNPStatusUpdates = vp.GetBool(DisableCNPStatusUpdates)
 	c.EnableICMPRules = vp.GetBool(EnableICMPRules)
 	c.BypassIPAvailabilityUponRestore = vp.GetBool(BypassIPAvailabilityUponRestore)

@@ -161,6 +161,15 @@ const (
 	// AWS ENI IPAM.
 	ENITags = "eni-tags"
 
+	// ENIGarbageCollectionTags is a tag that will be added to every ENI
+	// created by the AWS ENI IPAM.
+	// Any stale and unattached ENIs with this tag will be garbage
+	// collected by the operator.
+	ENIGarbageCollectionTags = "eni-gc-tags"
+
+	// ENIGarbageCollectionInterval defines the interval of ENI GC
+	ENIGarbageCollectionInterval = "eni-gc-interval"
+
 	// ParallelAllocWorkers specifies the number of parallel workers to be used for IPAM allocation
 	ParallelAllocWorkers = "parallel-alloc-workers"
 
@@ -235,8 +244,19 @@ const (
 	// by ingress-secrets-namespace flag
 	EnableIngressSecretsSync = "enable-ingress-secrets-sync"
 
+	// EnableGatewayAPISecretsSync enables fan-in TLS secrets from multiple namespaces to singular namespace (specified
+	// by gateway-api-secrets-namespace flag
+	EnableGatewayAPISecretsSync = "enable-gateway-api-secrets-sync"
+
 	// IngressSecretsNamespace is the namespace having tls secrets used by Ingress and CEC.
 	IngressSecretsNamespace = "ingress-secrets-namespace"
+
+	// GatewayAPISecretsNamespace is the namespace having tls secrets used by GatewayAPI and CEC.
+	GatewayAPISecretsNamespace = "gateway-api-secrets-namespace"
+
+	// EnableGatewayAPI enables support of Gateway API
+	// This must be enabled along with enable-envoy-config in cilium agent.
+	EnableGatewayAPI = "enable-gateway-api"
 
 	// CiliumK8sNamespace is the namespace where Cilium pods are running.
 	CiliumK8sNamespace = "cilium-pod-namespace"
@@ -256,6 +276,18 @@ const (
 	// IngressLBAnnotationPrefixes are the annotations which are needed to propagate
 	// from Ingress to the Load Balancer
 	IngressLBAnnotationPrefixes = "ingress-lb-annotation-prefixes"
+
+	// IngressSharedLBServiceName is the name of shared LB service name for Ingress.
+	IngressSharedLBServiceName = "ingress-shared-lb-service-name"
+
+	// IngressDefaultLoadbalancerMode is the default loadbalancer mode for Ingress.
+	// Applicable values: dedicated, shared
+	IngressDefaultLoadbalancerMode = "ingress-default-lb-mode"
+
+	// EnableK8s operation of Kubernet-related services/controllers.
+	// Intended for operating cilium with CNI-compatible orchestrators
+	// other than Kubernetes. (default is true)
+	EnableK8s = "enable-k8s"
 )
 
 // OperatorConfig is the configuration used by the operator.
@@ -377,6 +409,15 @@ type OperatorConfig struct {
 	// ENITags are the tags that will be added to every ENI created by the AWS ENI IPAM
 	ENITags map[string]string
 
+	// ENIGarbageCollectionTags is a tag that will be added to every ENI
+	// created by the AWS ENI IPAM.
+	// Any stale and unattached ENIs with this tag will be garbage
+	// collected by the operator.
+	ENIGarbageCollectionTags map[string]string
+
+	// ENIGarbageCollectionInterval defines the interval of ENI GC
+	ENIGarbageCollectionInterval time.Duration
+
 	// ParallelAllocWorkers specifies the number of parallel workers to be used in ENI mode.
 	ParallelAllocWorkers int64
 
@@ -449,14 +490,23 @@ type OperatorConfig struct {
 	// EnableIngressController enables cilium ingress controller
 	EnableIngressController bool
 
+	// EnableGatewayAPI enables support of Gateway API
+	EnableGatewayAPI bool
+
 	// EnforceIngressHTTPS enforces https if required
 	EnforceIngressHTTPS bool
 
-	// EnableIngressSecretsSync enables background TLS secret sync
+	// EnableIngressSecretsSync enables background TLS secret sync for Ingress
 	EnableIngressSecretsSync bool
 
-	// IngressSecretsNamespace is the namespace having tls secrets used by CEC.
+	// EnableGatewayAPISecretsSync enables background TLS secret sync for Gateway API
+	EnableGatewayAPISecretsSync bool
+
+	// IngressSecretsNamespace is the namespace having tls secrets used by CEC for Ingress.
 	IngressSecretsNamespace string
+
+	// GatewayAPISecretsNamespace is the namespace having tls secrets used by CEC for Gateway API.
+	GatewayAPISecretsNamespace string
 
 	// CiliumK8sNamespace is the namespace where Cilium pods are running.
 	CiliumK8sNamespace string
@@ -476,6 +526,18 @@ type OperatorConfig struct {
 	// IngressLBAnnotationPrefixes IngressLBAnnotations are the annotation prefixes,
 	// which are used to filter annotations to propagate from Ingress to the Load Balancer
 	IngressLBAnnotationPrefixes []string
+
+	// IngressSharedLBServiceName is the name of shared LB service name for Ingress.
+	IngressSharedLBServiceName string
+
+	// IngressDefaultLoadbalancerMode is the default loadbalancer mode for Ingress.
+	// Applicable values: dedicated, shared
+	IngressDefaultLoadbalancerMode string
+
+	// Enables/Disables operation of kubernet-related services/controllers.
+	// Intended for operating cilium with CNI-compatible orquestrators
+	// othern than Kubernetes. (default is true)
+	EnableK8s bool
 }
 
 // Populate sets all options with the values from viper.
@@ -507,13 +569,19 @@ func (c *OperatorConfig) Populate(vp *viper.Viper) {
 	c.BGPConfigPath = vp.GetString(BGPConfigPath)
 	c.SkipCRDCreation = vp.GetBool(SkipCRDCreation)
 	c.EnableIngressController = vp.GetBool(EnableIngressController)
+	c.EnableGatewayAPI = vp.GetBool(EnableGatewayAPI)
 	c.EnforceIngressHTTPS = vp.GetBool(EnforceIngressHttps)
 	c.IngressSecretsNamespace = vp.GetString(IngressSecretsNamespace)
+	c.GatewayAPISecretsNamespace = vp.GetString(GatewayAPISecretsNamespace)
 	c.EnableIngressSecretsSync = vp.GetBool(EnableIngressSecretsSync)
+	c.EnableGatewayAPISecretsSync = vp.GetBool(EnableGatewayAPISecretsSync)
 	c.CiliumPodLabels = vp.GetString(CiliumPodLabels)
 	c.RemoveCiliumNodeTaints = vp.GetBool(RemoveCiliumNodeTaints)
 	c.SetCiliumIsUpCondition = vp.GetBool(SetCiliumIsUpCondition)
 	c.IngressLBAnnotationPrefixes = vp.GetStringSlice(IngressLBAnnotationPrefixes)
+	c.IngressSharedLBServiceName = vp.GetString(IngressSharedLBServiceName)
+	c.IngressDefaultLoadbalancerMode = vp.GetString(IngressDefaultLoadbalancerMode)
+	c.EnableK8s = vp.GetBool(EnableK8s)
 
 	c.CiliumK8sNamespace = vp.GetString(CiliumK8sNamespace)
 
@@ -539,6 +607,7 @@ func (c *OperatorConfig) Populate(vp *viper.Viper) {
 	c.UpdateEC2AdapterLimitViaAPI = vp.GetBool(UpdateEC2AdapterLimitViaAPI)
 	c.EC2APIEndpoint = vp.GetString(EC2APIEndpoint)
 	c.ExcessIPReleaseDelay = vp.GetInt(ExcessIPReleaseDelay)
+	c.ENIGarbageCollectionInterval = vp.GetDuration(ENIGarbageCollectionInterval)
 
 	// Azure options
 
@@ -585,13 +654,20 @@ func (c *OperatorConfig) Populate(vp *viper.Viper) {
 	} else {
 		c.ENITags = m
 	}
+
+	if m, err := command.GetStringMapStringE(vp, ENIGarbageCollectionTags); err != nil {
+		log.Fatalf("unable to parse %s: %s", ENIGarbageCollectionTags, err)
+	} else {
+		c.ENIGarbageCollectionTags = m
+	}
 }
 
 // Config represents the operator configuration.
 var Config = &OperatorConfig{
-	IPAMSubnetsIDs:          make([]string, 0),
-	IPAMSubnetsTags:         make(map[string]string),
-	IPAMInstanceTags:        make(map[string]string),
-	AWSInstanceLimitMapping: make(map[string]string),
-	ENITags:                 make(map[string]string),
+	IPAMSubnetsIDs:           make([]string, 0),
+	IPAMSubnetsTags:          make(map[string]string),
+	IPAMInstanceTags:         make(map[string]string),
+	AWSInstanceLimitMapping:  make(map[string]string),
+	ENITags:                  make(map[string]string),
+	ENIGarbageCollectionTags: make(map[string]string),
 }

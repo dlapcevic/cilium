@@ -11,11 +11,11 @@ import (
 	"reflect"
 	"testing"
 
-	v1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1" // nolint: golint
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	operatorOption "github.com/cilium/cilium/operator/option"
-	v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
+	v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2" // nolint: golint
 	agentOption "github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/test/controlplane"
 	"github.com/cilium/cilium/test/controlplane/suite"
@@ -30,53 +30,43 @@ var steps = []step{
 	{
 		"state1.yaml",
 		map[string]string{
-			"beta.kubernetes.io/arch": "amd64",
-			"beta.kubernetes.io/os":   "linux",
-			"cilium.io/ci-node":       "k8s1",
-			"kubernetes.io/arch":      "amd64",
-			"kubernetes.io/hostname":  "cilium-nodes-worker",
-			"kubernetes.io/os":        "linux",
-			"test-label":              "test-value",
+			"cilium.io/ci-node":      "k8s1",
+			"kubernetes.io/arch":     "amd64",
+			"kubernetes.io/hostname": "cilium-nodes-worker",
+			"kubernetes.io/os":       "linux",
+			"test-label":             "test-value",
 		},
 	},
 
 	{
 		"state2.yaml",
 		map[string]string{
-			"beta.kubernetes.io/arch": "amd64",
-			"beta.kubernetes.io/os":   "linux",
-			"cilium.io/ci-node":       "k8s1",
-			"kubernetes.io/arch":      "amd64",
-			"kubernetes.io/hostname":  "cilium-nodes-worker",
-			"kubernetes.io/os":        "linux",
+			"cilium.io/ci-node":      "k8s1",
+			"kubernetes.io/arch":     "amd64",
+			"kubernetes.io/hostname": "cilium-nodes-worker",
+			"kubernetes.io/os":       "linux",
 		},
 	},
 
 	{
 		"state3.yaml",
 		map[string]string{
-			"beta.kubernetes.io/arch": "amd64",
-			"beta.kubernetes.io/os":   "linux",
-			"cilium.io/ci-node":       "k8s1",
-			"kubernetes.io/arch":      "amd64",
-			"kubernetes.io/hostname":  "cilium-nodes-worker",
-			"kubernetes.io/os":        "linux",
-
-			"another-test-label": "another-test-value",
+			"cilium.io/ci-node":      "k8s1",
+			"kubernetes.io/arch":     "amd64",
+			"kubernetes.io/hostname": "cilium-nodes-worker",
+			"kubernetes.io/os":       "linux",
+			"another-test-label":     "another-test-value",
 		},
 	},
 
 	{
 		"state4.yaml",
 		map[string]string{
-			"beta.kubernetes.io/arch": "amd64",
-			"beta.kubernetes.io/os":   "linux",
-			"cilium.io/ci-node":       "k8s1",
-			"kubernetes.io/arch":      "amd64",
-			"kubernetes.io/hostname":  "cilium-nodes-worker",
-			"kubernetes.io/os":        "linux",
-
-			"another-test-label": "changed-test-value",
+			"cilium.io/ci-node":      "k8s1",
+			"kubernetes.io/arch":     "amd64",
+			"kubernetes.io/hostname": "cilium-nodes-worker",
+			"kubernetes.io/os":       "linux",
+			"another-test-label":     "changed-test-value",
 		},
 	},
 }
