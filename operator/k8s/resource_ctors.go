@@ -16,6 +16,7 @@ import (
 	cilium_api_v2alpha1 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2alpha1"
 	"github.com/cilium/cilium/pkg/k8s/client"
 	"github.com/cilium/cilium/pkg/k8s/resource"
+	slim_core_v1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/core/v1"
 	"github.com/cilium/cilium/pkg/k8s/utils"
 )
 
@@ -56,4 +57,21 @@ func CiliumEndpointSliceResource(lc hive.Lifecycle, cs client.Clientset, opts ..
 		opts...,
 	)
 	return resource.New[*cilium_api_v2alpha1.CiliumEndpointSlice](lc, lw, resource.WithMetric("CiliumEndpointSlice")), nil
+}
+
+func PodResource(lc hive.Lifecycle, cs client.Clientset, opts ...func(*metav1.ListOptions)) (resource.Resource[*slim_core_v1.Pod], error) {
+	if !cs.IsEnabled() {
+		return nil, nil
+	}
+	lw := utils.ListerWatcherWithModifiers(
+		utils.ListerWatcherFromTyped[*slim_core_v1.PodList](cs.Slim().CoreV1().Pods("")),
+		opts...,
+	)
+	// PodResource from pkg/k8s/resource_ctors.go cannot be used because it does
+	// not index pods by namespace. When cilium-operator is managing cilium
+	// identities it needs to list pods by namespace when namespace labels change.
+	indexers := cache.Indexers{
+		cache.NamespaceIndex: cache.MetaNamespaceIndexFunc,
+	}
+	return resource.New[*slim_core_v1.Pod](lc, lw, resource.WithMetric("Pod"), resource.WithIndexers(indexers)), nil
 }
