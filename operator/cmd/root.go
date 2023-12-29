@@ -33,6 +33,7 @@ import (
 	operatorOption "github.com/cilium/cilium/operator/option"
 	"github.com/cilium/cilium/operator/pkg/ciliumendpointslice"
 	"github.com/cilium/cilium/operator/pkg/ciliumenvoyconfig"
+	"github.com/cilium/cilium/operator/pkg/ciliumidentity"
 	controllerruntime "github.com/cilium/cilium/operator/pkg/controller-runtime"
 	gatewayapi "github.com/cilium/cilium/operator/pkg/gateway-api"
 	"github.com/cilium/cilium/operator/pkg/ingress"
@@ -200,6 +201,8 @@ var (
 			// It is disabled if CiliumEndpointSlice is disabled in the cluster -
 			// when --enable-cilium-endpoint-slice is false.
 			ciliumendpointslice.Cell,
+
+			ciliumidentity.Cell,
 
 			// Cilium Endpoint Garbage Collector. It removes all leaked Cilium
 			// Endpoints. Either once or periodically it validates all the present

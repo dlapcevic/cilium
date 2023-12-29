@@ -2,6 +2,7 @@ package ciliumidentity
 
 import (
 	"context"
+	"time"
 
 	"github.com/cilium/cilium/pkg/k8s/resource"
 	slim_core_v1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/core/v1"
@@ -40,7 +41,7 @@ func (c *Controller) initPodQueue() {
 
 	c.podQueue = workqueue.NewRateLimitingQueueWithConfig(
 		workqueue.NewItemExponentialFailureRateLimiter(defaultSyncBackOff, maxSyncBackOff),
-		workqueue.RateLimitingQueueConfig{Name: "pods"})
+		workqueue.RateLimitingQueueConfig{Name: "pod"})
 }
 
 // runWorker runs a worker thread that just dequeues items, processes them, and
@@ -53,43 +54,50 @@ func (c *Controller) runPodWorker() {
 }
 
 func (c *Controller) processNextPodQueueItem() bool {
+	processingStartTime := time.Now()
+
 	item, quit := c.podQueue.Get()
 	if quit {
 		return false
 	}
 	defer c.podQueue.Done(item)
 
-	key := item.(resource.Key)
-	err := c.reconciler.reconcilePod(key)
+	podItem := item.(queueItem)
+
+	err := c.reconciler.reconcilePod(podItem.key)
 	c.handlePodErr(err, item)
+
+	enqueuedLatency := processingStartTime.Sub(podItem.enqueueTime).Seconds()
+	c.Metrics.CIDControllerWorkqueueLatency.WithLabelValues(LabelValuePodWorkqueue, LabelValueEnqueuedLatency).Observe(enqueuedLatency)
+
+	processingLatency := time.Since(processingStartTime).Seconds()
+	c.Metrics.CIDControllerWorkqueueLatency.WithLabelValues(LabelValuePodWorkqueue, LabelValueProcessingLatency).Observe(processingLatency)
 
 	return true
 }
 
-func (c *Controller) handlePodErr(err error, key interface{}) {
+func (c *Controller) handlePodErr(err error, item interface{}) {
 	if err == nil {
-		c.podQueue.Forget(key)
+		c.Metrics.CIDControllerWorkqueueEventCount.WithLabelValues(LabelValuePodWorkqueue, LabelValueOutcomeSuccess).Inc()
+
+		c.podQueue.Forget(item)
 		return
 	}
 
-	// TODO: Pod metrics to be added.
-	// Increment error count for sync errors
-	//if operatorOption.Config.EnableMetrics {
-	//	metrics.CiliumEndpointSliceSyncErrors.Inc()
-	//}
+	c.Metrics.CIDControllerWorkqueueEventCount.WithLabelValues(LabelValuePodWorkqueue, LabelValueOutcomeFail).Inc()
 
 	log.Infof("Failed to process Pod: %v", err)
 
-	if c.podQueue.NumRequeues(key) < maxProcessRetries {
-		c.podQueue.AddRateLimited(key)
+	if c.podQueue.NumRequeues(item) < maxProcessRetries {
+		c.podQueue.AddRateLimited(item)
 		return
 	}
 
-	// Drop the CES from queue, we maxed out retries.
+	// Drop the pod from queue, we maxed out retries.
 	log.WithError(err).WithFields(logrus.Fields{
-		logfields.K8sPodName: key,
+		logfields.K8sPodName: item,
 	}).Error("Dropping the Pod from queue, exceeded maxRetries")
-	c.podQueue.Forget(key)
+	c.podQueue.Forget(item)
 }
 
 func podResourceKey(podName, podNamespace string) resource.Key {
@@ -101,5 +109,92 @@ func (c *Controller) enqueuePodReconciliation(podKey resource.Key) {
 		return
 	}
 
-	c.podQueue.Add(podKey)
+	item := queueItem{
+		key:         podKey,
+		enqueueTime: time.Now(),
+	}
+
+	c.podQueue.Add(item)
 }
+
+// // onPodUpdate pushes a CID create to the CID work queue if there is no matching
+// // CID for the security labels.
+// func (c *Controller) onPodUpdate(pod *slim_core_v1.Pod) {
+// 	c.enqueuePodReconciliation(podResourceKey(pod.Name, pod.Namespace))
+// }
+
+// func (c *Controller) initPodQueue() {
+// 	log.WithFields(logrus.Fields{
+// 		logfields.WorkQueueSyncBackOff: defaultSyncBackOff,
+// 	}).Info("CID controller workqueue configuration for Pod")
+
+// 	c.podQueue = workqueue.NewRateLimitingQueueWithConfig(
+// 		workqueue.NewItemExponentialFailureRateLimiter(defaultSyncBackOff, maxSyncBackOff),
+// 		workqueue.RateLimitingQueueConfig{Name: "pods"})
+// }
+
+// // runWorker runs a worker thread that just dequeues items, processes them, and
+// // marks them done. You may run as many of these in parallel as you wish; the
+// // workqueue guarantees that they will not end up processing the same Pod at the
+// // same time.
+// func (c *Controller) runPodWorker() {
+// 	for c.processNextPodQueueItem() {
+// 	}
+// }
+
+// func (c *Controller) processNextPodQueueItem() bool {
+// 	item, quit := c.podQueue.Get()
+// 	if quit {
+// 		return false
+// 	}
+// 	defer c.podQueue.Done(item)
+
+// 	podItem := item.(queueItem)
+// 	err := c.reconciler.reconcilePod(podItem.key)
+// 	c.handlePodErr(err, item)
+
+// 	return true
+// }
+
+// func (c *Controller) handlePodErr(err error, item interface{}) {
+// 	if err == nil {
+// 		c.podQueue.Forget(item)
+// 		return
+// 	}
+
+// 	// TODO: Pod metrics to be added.
+// 	// Increment error count for sync errors
+// 	//if operatorOption.Config.EnableMetrics {
+// 	//	metrics.CiliumEndpointSliceSyncErrors.Inc()
+// 	//}
+
+// 	log.Infof("Failed to process Pod: %v", err)
+
+// 	if c.podQueue.NumRequeues(item) < maxProcessRetries {
+// 		c.podQueue.AddRateLimited(item)
+// 		return
+// 	}
+
+// 	// Drop the CES from queue, we maxed out retries.
+// 	log.WithError(err).WithFields(logrus.Fields{
+// 		logfields.K8sPodName: item,
+// 	}).Error("Dropping the Pod from queue, exceeded maxRetries")
+// 	c.podQueue.Forget(item)
+// }
+
+// func podResourceKey(podName, podNamespace string) resource.Key {
+// 	return resource.Key{Name: podName, Namespace: podNamespace}
+// }
+
+// func (c *Controller) enqueuePodReconciliation(podKey resource.Key) {
+// 	if len(podKey.String()) == 0 {
+// 		return
+// 	}
+
+// 	item := queueItem{
+// 		key: podKey,
+// 		enqueueTime: time.Now(),
+// 	}
+
+// 	c.cidQueue.Add(item)
+// }

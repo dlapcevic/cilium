@@ -59,12 +59,14 @@ type params struct {
 
 	Cfg       Config
 	SharedCfg SharedConfig
+	Metrics   *Metrics
 }
 
 type Controller struct {
 	logger        logrus.FieldLogger
 	context       context.Context
 	contextCancel context.CancelFunc
+	Metrics       *Metrics
 
 	stopCh chan struct{}
 
@@ -104,6 +106,11 @@ type queueOperations interface {
 	enqueueNSReconciliation(nsKey resource.Key)
 }
 
+type queueItem struct {
+	key         resource.Key
+	enqueueTime time.Time
+}
+
 // registerController creates and initializes the CID controller
 func registerController(p params) {
 	if !p.Clientset.IsEnabled() || !p.SharedCfg.EnableOperatorManageCIDs {
@@ -120,7 +127,10 @@ func registerController(p params) {
 		cidQueueQpsLimit:    p.Cfg.CIDQueueQPSLimit,
 		cidQueueBurstLimit:  p.Cfg.CIDQueueBurstLimit,
 		cesEnabled:          p.SharedCfg.EnableCiliumEndpointSlice,
+		Metrics:             p.Metrics,
 	}
+
+	cidController.initializeQueues()
 
 	p.Lifecycle.Append(cidController)
 }
@@ -128,6 +138,10 @@ func registerController(p params) {
 func (c *Controller) Start(ctx hive.HookContext) error {
 	c.logger.Info("Starting Cilium Identity controller")
 	defer utilruntime.HandleCrash()
+
+	defer c.cidQueue.ShutDown()
+	defer c.podQueue.ShutDown()
+	defer c.nsQueue.ShutDown()
 
 	c.reconciler = newReconciler(
 		ctx,
@@ -140,23 +154,17 @@ func (c *Controller) Start(ctx hive.HookContext) error {
 		c.cesEnabled,
 		c,
 	)
-	c.initializeQueues()
 
 	// The desired state needs to be calculated before the events are processed.
 	if err := c.reconciler.calcDesiredStateOnStartup(); err != nil {
 		return fmt.Errorf("CID controller failed to calculate the desired state: %v", err)
 	}
 
-	c.wp = workerpool.New(4)
-	c.wp.Submit("process-cilium-identity-events", c.processCiliumIdentityEvents)
-	c.wp.Submit("process-pod-events", c.processPodEvents)
-	c.wp.Submit("process-namespace-events", c.processNamespaceEvents)
-	c.wp.Submit("process-namespace-events", c.processCiliumEndpointSliceEvents)
+	c.startWorkerPool()
 
 	c.logger.Info("Starting CID controller reconciler.")
-	go c.runCIDWorker()
-	go c.runPodWorker()
-	go c.runNSWorker()
+
+	c.startWorkQueues()
 
 	return nil
 }
@@ -172,4 +180,18 @@ func (c *Controller) initializeQueues() {
 	c.initCIDQueue()
 	c.initPodQueue()
 	c.initNSQueue()
+}
+
+func (c *Controller) startWorkerPool() {
+	c.wp = workerpool.New(4)
+	c.wp.Submit("process-cilium-identity-events", c.processCiliumIdentityEvents)
+	c.wp.Submit("process-pod-events", c.processPodEvents)
+	c.wp.Submit("process-namespace-events", c.processNamespaceEvents)
+	c.wp.Submit("process-namespace-events", c.processCiliumEndpointSliceEvents)
+}
+
+func (c *Controller) startWorkQueues() {
+	go c.runCIDWorker()
+	go c.runPodWorker()
+	go c.runNSWorker()
 }

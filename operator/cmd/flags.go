@@ -259,6 +259,18 @@ func InitGlobalFlags(cmd *cobra.Command, vp *viper.Viper) {
 	flags.Bool(option.EnableCiliumEndpointSlice, false, "If set to true, the CiliumEndpointSlice feature is enabled. If any CiliumEndpoints resources are created, updated, or deleted in the cluster, all those changes are broadcast as CiliumEndpointSlice updates to all of the Cilium agents.")
 	option.BindEnv(vp, option.EnableCiliumEndpointSlice)
 
+	flags.Bool(option.OperatorManagesGlobalIdentities, false, "OperatorManagesGlobalIdentities denotes whether cilium-operator is responsible for creating global security identities in the form of Cilium Identity custom resource. Cilium-agent loses the permission to write to Cilium Identity resource")
+	option.BindEnv(Vp, option.OperatorManagesGlobalIdentities)
+
+	flags.Float64(operatorOption.CIDQueueQPSLimit, 0, "CIDQueueQPSLimit is the rate limit configuration for processing CID events from the CID workqueue.")
+	option.BindEnv(Vp, operatorOption.CIDQueueQPSLimit)
+
+	flags.Int(operatorOption.CIDQueueQPSBurst, 0, "CIDQueueQPSBurst is the burst limit configuration for processing CID events from the CID workqueue.")
+	option.BindEnv(Vp, operatorOption.CIDQueueQPSBurst)
+
+	flags.StringSlice(operatorOption.IdentityRelevantLabelsFilter, nil, "IdentityRelevantLabelsFilter is the filter for secruity identity  relevant labels.")
+	option.BindEnv(Vp, operatorOption.IdentityRelevantLabelsFilter)
+
 	flags.String(operatorOption.CiliumK8sNamespace, "", fmt.Sprintf("Name of the Kubernetes namespace in which Cilium is deployed in. Defaults to the same namespace defined in %s", option.K8sNamespaceName))
 	option.BindEnv(vp, operatorOption.CiliumK8sNamespace)
 

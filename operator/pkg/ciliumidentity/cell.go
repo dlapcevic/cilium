@@ -11,24 +11,25 @@ import (
 
 const (
 	// CIDWriteQPSLimit is the rate limit per second for the CID work queue to
-	// process  CID events that result in CES write (Create, Update, Delete)
+	// process CID events that result in CID write (Create, Update, Delete)
 	// requests to the kube-apiserver.
-	CIDWriteQPSLimit = "ces-write-qps-limit"
+	CIDWriteQPSLimit = "cid-write-qps-limit"
 
 	// CIDWriteQPSBurst is the burst rate per second used with CIDWriteQPSLimit
 	// for the CID work queue to process CID events that result in CID write
 	// (Create, Update, Delete) requests to the kube-apiserver.
-	CIDWriteQPSBurst = "ces-write-qps-burst"
+	CIDWriteQPSBurst = "cid-write-qps-burst"
 )
 
-// Cell is a cell that implements a Cilium Endpoint Slice Controller.
-// The controller subscribes to cilium endpoint and cilium endpoint slices
-// events and reconciles the state of the cilium endpoint slices in the cluster.
+// Cell is a cell that implements a Cilium Identity Controller. The controller
+// subscribes to Cilium Identity, Cilium Endpoint Slices, Pods and Namespace
+// events and reconciles the state of cilium identities in the cluster.
 var Cell = cell.Module(
-	"k8s-ces-controller",
-	"Cilium Endpoint Slice Controller",
+	"k8s-cid-controller",
+	"Cilium Identity Controller",
 	cell.Config(defaultConfig),
 	cell.Invoke(registerController),
+	cell.Metric(NewMetrics),
 )
 
 type Config struct {
@@ -55,6 +56,7 @@ type SharedConfig struct {
 	// running a Cilium Identity controller.
 	EnableOperatorManageCIDs bool
 
-	// EnableCiliumEndpointSlice enables the cilium endpoint slicing feature and the CES Controller.
+	// EnableCiliumEndpointSlice indicates if the Cilium Endpoint Slice feature is
+	// enabled.
 	EnableCiliumEndpointSlice bool
 }

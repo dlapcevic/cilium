@@ -241,10 +241,12 @@ func NewCIDUsageInCES() *CIDUsageInCES {
 	}
 }
 
-func (c *CIDUsageInCES) ProcessCESUpsert(ces *v2alpha1.CiliumEndpointSlice) {
+func (c *CIDUsageInCES) ProcessCESUpsert(ces *v2alpha1.CiliumEndpointSlice) []int64 {
 	if ces == nil {
-		return
+		return nil
 	}
+
+	var cidsWithNoCESUsage []int64
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -256,25 +258,37 @@ func (c *CIDUsageInCES) ProcessCESUpsert(ces *v2alpha1.CiliumEndpointSlice) {
 	}
 
 	for _, cid := range c.prevCIDsUsedInCES[ces.Name] {
-		c.decrementUsage(cid)
+		count := c.decrementUsage(cid)
+		if count == 0 {
+			cidsWithNoCESUsage = append(cidsWithNoCESUsage, cid)
+		}
 	}
 
 	c.prevCIDsUsedInCES[ces.Name] = newUsedCIDs
+
+	return cidsWithNoCESUsage
 }
 
-func (c *CIDUsageInCES) ProcessCESDelete(ces *v2alpha1.CiliumEndpointSlice) {
+func (c *CIDUsageInCES) ProcessCESDelete(ces *v2alpha1.CiliumEndpointSlice) []int64 {
 	if ces == nil {
-		return
+		return nil
 	}
+
+	var cidsWithNoCESUsage []int64
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	for _, cep := range ces.Endpoints {
-		c.decrementUsage(cep.IdentityID)
+		count := c.decrementUsage(cep.IdentityID)
+		if count == 0 {
+			cidsWithNoCESUsage = append(cidsWithNoCESUsage, cep.IdentityID)
+		}
 	}
 
 	delete(c.prevCIDsUsedInCES, ces.Name)
+
+	return cidsWithNoCESUsage
 }
 
 func (c *CIDUsageInCES) CIDUsageCount(cidName string) int {
@@ -295,9 +309,13 @@ func (c *CIDUsageInCES) CIDUsageCount(cidName string) int {
 
 // decrementUsage reduces the usage count for a CID and removes it from the map
 // if the count is 0. Must be used only after aquiring the write lock.
-func (c *CIDUsageInCES) decrementUsage(cidName int64) {
+func (c *CIDUsageInCES) decrementUsage(cidName int64) int {
 	c.cidUsageCount[cidName]--
-	if c.cidUsageCount[cidName] == 0 {
+	count := c.cidUsageCount[cidName]
+
+	if count == 0 {
 		delete(c.cidUsageCount, cidName)
 	}
+
+	return count
 }

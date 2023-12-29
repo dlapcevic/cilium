@@ -2,6 +2,7 @@ package ciliumidentity
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2alpha1"
 	"github.com/cilium/cilium/pkg/k8s/resource"
@@ -35,9 +36,19 @@ func (c *Controller) processCiliumEndpointSliceEvents(ctx context.Context) error
 }
 
 func (c *Controller) onCiliumEndpointSliceUpdate(ces *v2alpha1.CiliumEndpointSlice) {
-	c.reconciler.cidUsageInCES.ProcessCESUpsert(ces)
+	cidsWithNoCESUsage := c.reconciler.cidUsageInCES.ProcessCESUpsert(ces)
+
+	for _, cid := range cidsWithNoCESUsage {
+		cidName := strconv.Itoa(int(cid))
+		c.enqueueCIDReconciliation(cidResourceKey(cidName))
+	}
 }
 
 func (c *Controller) onCiliumEndpointSliceDelete(ces *v2alpha1.CiliumEndpointSlice) {
-	c.reconciler.cidUsageInCES.ProcessCESDelete(ces)
+	cidsWithNoCESUsage := c.reconciler.cidUsageInCES.ProcessCESDelete(ces)
+
+	for _, cid := range cidsWithNoCESUsage {
+		cidName := strconv.Itoa(int(cid))
+		c.enqueueCIDReconciliation(cidResourceKey(cidName))
+	}
 }
