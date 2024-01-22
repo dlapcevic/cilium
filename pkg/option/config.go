@@ -1281,6 +1281,11 @@ const (
 	// EnableCiliumEndpointSlice enables the cilium endpoint slicing feature.
 	EnableCiliumEndpointSlice = "enable-cilium-endpoint-slice"
 
+	// OperatorManagesGlobalIdentities Denotes whether cilium-operator is
+	// responsible for creating global security identities in the form of Cilium
+	// Identity custom resource.
+	OperatorManagesGlobalIdentities = "operator-manages-global-identities"
+
 	// EnableExternalWorkloads enables the support for external workloads.
 	EnableExternalWorkloads = "enable-external-workloads"
 )
@@ -2362,8 +2367,14 @@ type DaemonConfig struct {
 
 	// ARPPingRefreshPeriod is the ARP entries refresher period.
 	ARPPingRefreshPeriod time.Duration
+
 	// EnableCiliumEndpointSlice enables the cilium endpoint slicing feature.
 	EnableCiliumEndpointSlice bool
+
+	// OperatorManagesGlobalIdentities denotes whether cilium-operator is
+	// responsible for creating global security identities in the form of Cilium
+	// Identity custom resource.
+	OperatorManagesGlobalIdentities bool
 
 	// ARPPingKernelManaged denotes whether kernel can auto-refresh Neighbor entries
 	ARPPingKernelManaged bool
@@ -3144,6 +3155,7 @@ func (c *DaemonConfig) Populate(vp *viper.Viper) {
 	c.MonitorAggregation = vp.GetString(MonitorAggregationName)
 	c.MonitorAggregationInterval = vp.GetDuration(MonitorAggregationInterval)
 	c.MTU = vp.GetInt(MTUName)
+	c.OperatorManagesGlobalIdentities = vp.GetBool(OperatorManagesGlobalIdentities)
 	c.PreAllocateMaps = vp.GetBool(PreAllocateMapsName)
 	c.ProcFs = vp.GetString(ProcFs)
 	c.ProxyConnectTimeout = vp.GetInt(ProxyConnectTimeout)

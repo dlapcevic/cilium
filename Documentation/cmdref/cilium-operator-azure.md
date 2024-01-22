@@ -27,6 +27,10 @@ cilium-operator-azure [flags]
       --ces-slice-mode string                                Slicing mode define how ceps are grouped into a CES (default "cesSliceModeIdentity")
       --ces-write-qps-burst int                              CES work queue burst rate. Ignored when ces-enable-dynamic-rate-limit is set (default 20)
       --ces-write-qps-limit float                            CES work queue rate limit. Ignored when ces-enable-dynamic-rate-limit is set (default 10)
+      --ces-write-qps-burst int                              CES work queue burst rate (default 20)
+      --ces-write-qps-limit float                            CES work queue rate limit (default 10)
+      --cid-write-qps-burst int                              The burst limit configuration for processing CID events from the CID workqueue
+      --cid-write-qps-limit float                            The rate limit configuration for processing CID events from the CID workqueue
       --cilium-endpoint-gc-interval duration                 GC interval for cilium endpoints (default 5m0s)
       --cilium-pod-labels string                             Cilium Pod's labels. Used to detect if a Cilium pod is running to remove the node taints where its running and set NetworkUnavailable to false (default "k8s-app=cilium")
       --cilium-pod-namespace string                          Name of the Kubernetes namespace in which Cilium is deployed in. Defaults to the same namespace defined in k8s-namespace
@@ -100,6 +104,7 @@ cilium-operator-azure [flags]
       --mesh-auth-spire-server-connection-timeout duration   SPIRE server connection timeout. (default 10s)
       --nodes-gc-interval duration                           GC interval for CiliumNodes (default 5m0s)
       --operator-api-serve-addr string                       Address to serve API requests (default "localhost:9234")
+      --operator-manages-global-identities                   Denotes whether cilium-operator is responsible for creating global security identities in the form of Cilium Identity custom resource
       --operator-pprof                                       Enable serving pprof debugging API
       --operator-pprof-address string                        Address that pprof listens on (default "localhost")
       --operator-pprof-port uint16                           Port that pprof listens on (default 6061)
